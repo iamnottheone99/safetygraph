@@ -4,10 +4,11 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-blue.svg)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18-green.svg)](https://nodejs.org/)
 [![Tests](https://img.shields.io/badge/Tests-40%20Passing-brightgreen.svg)](https://jestjs.io/)
+[![Model-Provider Agnostic](https://img.shields.io/badge/LLM-Model--Provider%20Agnostic-orange.svg)](#-supported-llm-providers)
 
-**SafetyGraph** is an open-source, headless hybrid RAG engine designed to enforce **deterministic guardrails** and hard constraints onto LLM generation pipelines.
+**SafetyGraph** is an open-source, **model-provider-agnostic**, headless hybrid RAG engine designed to enforce **deterministic guardrails** and hard constraints onto LLM generation pipelines.
 
-By synthesizing the semantic adaptability of **Vector Search (`pgvector`)** with the non-negotiable relational logic of a **Knowledge Graph (`Neo4j`)**, SafetyGraph prevents hallucinations, enforces domain compliance, and protects downstream applications across any LLM provider.
+By synthesizing the semantic adaptability of **Vector Search (`pgvector`)** with the non-negotiable relational logic of a **Knowledge Graph (`Neo4j`)**, SafetyGraph prevents hallucinations, enforces domain compliance, and protects downstream applications across any LLM provider (Anthropic, OpenAI, local Ollama, Groq, DeepSeek, OpenRouter, or custom endpoints).
 
 ---
 

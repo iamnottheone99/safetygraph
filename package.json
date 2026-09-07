@@ -1,7 +1,7 @@
 {
   "name": "safetygraph",
   "version": "1.0.0",
-  "description": "SafetyGraph / VerifiedRAG Headless Engine",
+  "description": "SafetyGraph / VerifiedRAG - Model-Provider-Agnostic Headless Hybrid RAG Engine with Deterministic Guardrails",
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
@@ -13,10 +13,17 @@
   "keywords": [
     "rag",
     "graphrag",
+    "model-agnostic",
+    "provider-agnostic",
+    "guardrails",
     "neo4j",
     "pgvector",
-    "llm",
-    "guardrails"
+    "anthropic",
+    "openai",
+    "ollama",
+    "groq",
+    "deepseek",
+    "openrouter"
   ],
   "author": "Ashmit Kundu",
   "repository": {
