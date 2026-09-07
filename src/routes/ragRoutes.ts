@@ -72,6 +72,7 @@ router.post('/query',
         response: sanitized,
         constraints_applied: constraints,
         vector_sources: vectorContext.map(v => ({ id: v.id, similarity: v.similarity })),
+        provider: aiService.getProviderInfo(),
         safety_verified: true
       });
     } catch (error: any) {

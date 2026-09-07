@@ -26,6 +26,8 @@ coverage/
 # Graphify & Local tooling outputs
 graphify-out/
 .engram/
+safetygraph-architecture*
+*.visual-check.*
 
 # Operating System
 .DS_Store
