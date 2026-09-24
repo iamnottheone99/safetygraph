@@ -13,10 +13,17 @@ export const CONFIG = {
   maxContextTokens: parseInt(process.env.GUARDRAIL_MAX_CONTEXT_TOKENS || '4000', 10),
 };
 
+export function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 const BLOCKED_PATTERNS = [
   { pattern: /<script[\s>]|javascript:|on\w+=/i, reason: 'Potential script injection' },
-  { pattern: /union\s+select|insert\s+into|drop\s+table/i, reason: 'Potential SQL injection' },
-  { pattern: /\b(system_prompt|ignore\s+previous\s+instructions)\b/i, reason: 'Prompt injection attempt' },
+  { pattern: /(?:;|\bunion\s+select|\binsert\s+into|\bdrop\s+table\b)/i, reason: 'Potential SQL injection' },
+  { 
+    pattern: /\b(system_prompt|ignore\s+(?:all\s+)?previous\s+instructions|disregard\s+(?:all\s+)?prior\s+instructions|you\s+are\s+now\s+in\s+developer\s+mode|dan\s+mode|bypass\s+safety\s+filter)\b/i, 
+    reason: 'Prompt injection attempt' 
+  },
 ];
 
 const DANGEROUS_TOPICS = [
@@ -54,9 +61,10 @@ export function validateInput(text: any, options: ValidationOptions = {}): boole
     }
   }
 
-  const lower = input.toLowerCase();
+  // Word-boundary sensitive matching for dangerous topics to prevent broad false-positive substring matches
   for (const topic of DANGEROUS_TOPICS) {
-    if (lower.includes(topic)) {
+    const topicPattern = new RegExp(`\\b${escapeRegex(topic)}\\b`, 'i');
+    if (topicPattern.test(input)) {
       logger.warn({ topic }, 'Blocked dangerous topic');
       throw createError('E_GUARDRAIL', `Topic not allowed: ${topic}`, false);
     }
@@ -98,7 +106,7 @@ export function validateUserContext(user: any, options: UserContextOptions = {})
     }
   }
 
-  if (options.checkQuota && user.quota && user.quota.remaining <= 0) {
+  if (options.checkQuota && user?.quota && user.quota.remaining <= 0) {
     throw new AppError('Quota exceeded', 429, 'E_RATE_LIMITED', true);
   }
 
@@ -178,25 +186,38 @@ export function validateSafety(
   }
 
   // 2. Positive recommendation of prohibited actions/substances
-  // Checks if the response actively encourages or recommends things forbidden by constraints
   for (const constraint of safetyProfile.hardConstraints) {
     const cLower = constraint.toLowerCase();
 
     // Extract prohibited keywords from constraints like "avoid NSAIDs like ibuprofen" or "contraindicated: ibuprofen"
-    const avoidMatch = cLower.match(/(?:avoid|contraindicated|do not take|prohibited|no)\s+([a-z0-9_\-\s]+)/i);
+    const avoidMatch = cLower.match(/(?:avoid|contraindicated|do not take|prohibited|no)\s+([a-z0-9_\-\s,]+)/i);
     if (avoidMatch && avoidMatch[1]) {
       const targetEntity = avoidMatch[1].trim();
-      const entityTokens = targetEntity.split(/\s+/).filter(t => t.length > 3 && !['like', 'with', 'such', 'patient'].includes(t));
+      const entityTokens = targetEntity
+        .split(/[\s,]+/)
+        .map(t => t.trim())
+        .filter(t => t.length > 3 && !['like', 'with', 'such', 'patient', 'disease', 'condition', 'severe'].includes(t));
 
-      for (const token of entityTokens) {
-        // Detect affirmative recommendation patterns: "take ibuprofen", "you can use ibuprofen", "recommend ibuprofen"
-        const positivePattern = new RegExp(`\\b(take|administer|use|prescribe|recommend(?:ed)?)\\s+(?:a\\s+|an\\s+|some\\s+)?(?:dose\\s+of\\s+)?${token}\\b`, 'i');
+      for (const rawToken of entityTokens) {
+        const token = escapeRegex(rawToken);
+
+        // Pattern A: Active verb before entity: "take ibuprofen", "prescribe ibuprofen", "recommend ibuprofen"
+        const activePattern = new RegExp(`\\b(take|administer|use|prescribe|recommend(?:ed)?|suggest(?:ed)?|give|given)\\s+(?:a\\s+|an\\s+|some\\s+)?(?:dose\\s+of\\s+)?${token}\\b`, 'i');
         
-        // Ensure it's not preceded by a negation: "do not take ibuprofen", "cannot recommend ibuprofen", "avoid ibuprofen"
-        const negationPattern = new RegExp(`\\b(do\\s+not|never|avoid|contraindicated|cannot\\s+recommend|should\\s+not)\\s+(?:take|administer|use|prescribe|recommend(?:ed)?\\s+)?(?:a\\s+|an\\s+)?${token}\\b`, 'i');
+        // Pattern B: Predicate recommendation: "ibuprofen is recommended", "ibuprofen is suitable", "ibuprofen is effective"
+        const predicatePattern = new RegExp(`\\b${token}\\s+(?:is|are)\\s+(?:recommended|suggested|suitable|effective|indicated|advised|prescribed)\\b`, 'i');
 
-        if (positivePattern.test(lowerAdvice) && !negationPattern.test(lowerAdvice)) {
-          issues.push(`Advice actively recommends '${token}', which violates constraint: "${constraint}"`);
+        // Pattern C: Noun recommendation: "suggested medication: ibuprofen", "recommended analgesic: ibuprofen"
+        const nounPattern = new RegExp(`\\b(recommendation|suggested|recommended|prescribed)\\s+(?:option|medication|drug|analgesic|treatment)?\\s*[:\\-]?\\s*${token}\\b`, 'i');
+
+        // Negation / safe pattern: "do not take ibuprofen", "avoid ibuprofen", "ibuprofen is contraindicated", "never prescribe ibuprofen"
+        const negationPattern = new RegExp(`(?:\\b(do\\s+not|never|avoid|contraindicated|cannot\\s+recommend|should\\s+not)\\s+(?:take|administer|use|prescribe|recommend(?:ed)?\\s+)?(?:a\\s+|an\\s+)?${token}\\b|\\b${token}\\s+(?:is|are)\\s+(?:contraindicated|not\\s+recommended|strictly\\s+avoided|prohibited)\\b)`, 'i');
+
+        const isRecommending = activePattern.test(lowerAdvice) || predicatePattern.test(lowerAdvice) || nounPattern.test(lowerAdvice);
+        const isNegated = negationPattern.test(lowerAdvice);
+
+        if (isRecommending && !isNegated) {
+          issues.push(`Advice actively recommends '${rawToken}', which violates constraint: "${constraint}"`);
         }
       }
     }
@@ -205,9 +226,11 @@ export function validateSafety(
   // 3. Prohibited entities direct check
   if (safetyProfile.prohibitedEntities) {
     for (const entity of safetyProfile.prohibitedEntities) {
-      const entLower = entity.toLowerCase();
-      const positivePattern = new RegExp(`\\b(take|use|administer|prescribe)\\s+${entLower}\\b`, 'i');
-      if (positivePattern.test(lowerAdvice)) {
+      const entLower = escapeRegex(entity.toLowerCase());
+      const positivePattern = new RegExp(`\\b(take|use|administer|prescribe|recommend)\\s+${entLower}\\b`, 'i');
+      const negationPattern = new RegExp(`\\b(do\\s+not|never|avoid|contraindicated)\\s+(?:take|use|administer|prescribe)?\\s*${entLower}\\b`, 'i');
+
+      if (positivePattern.test(lowerAdvice) && !negationPattern.test(lowerAdvice)) {
         issues.push(`Advice promotes restricted entity: '${entity}'`);
       }
     }

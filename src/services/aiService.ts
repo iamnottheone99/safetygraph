@@ -2,6 +2,7 @@ import pino from 'pino';
 import { circuitManager } from '../utils/circuitBreaker';
 import { ILLMProvider } from './providers/types';
 import { ProviderFactory } from './providers/providerFactory';
+import { truncateContext } from './guardrails';
 
 const logger = pino();
 
@@ -52,7 +53,7 @@ export class AIService {
       '',
       'Semantic context retrieved from Vector Search:',
       vectorDocs.length > 0 
-        ? vectorDocs.map(d => `- ${d.content}`).join('\n')
+        ? vectorDocs.map(d => `- ${truncateContext(d.content, 500)}`).join('\n')
         : '  (No vector context retrieved)',
       '',
       'Never advise or suggest any action that violates the mandatory constraints.'

@@ -3,7 +3,7 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-blue.svg)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18-green.svg)](https://nodejs.org/)
-[![Tests](https://img.shields.io/badge/Tests-40%20Passing-brightgreen.svg)](https://jestjs.io/)
+[![Tests](https://img.shields.io/badge/Tests-69%20Passing-brightgreen.svg)](https://jestjs.io/)
 [![Model-Provider Agnostic](https://img.shields.io/badge/LLM-Model--Provider%20Agnostic-orange.svg)](#-supported-llm-providers)
 
 **SafetyGraph** is an open-source, **model-provider-agnostic**, headless hybrid RAG engine designed to enforce **deterministic guardrails** and hard constraints onto LLM generation pipelines.
@@ -68,12 +68,14 @@ By synthesizing the semantic adaptability of **Vector Search (`pgvector`)** with
 
 ## ✨ Features
 
-- **Dual-Retrieval Pipeline**: Simultaneously queries PostgreSQL `pgvector` for broad semantic relevance and Neo4j for strict entity-constraint mappings.
+- **Dual-Retrieval Pipeline**: Simultaneously queries PostgreSQL `pgvector` for broad semantic relevance (using true cosine distance `<=>`) and Neo4j for strict entity-constraint mappings.
 - **Provider-Agnostic LLM Tier**: Switch effortlessly between **Anthropic**, **OpenAI**, local **Ollama** (free/offline), **Groq**, **DeepSeek**, **OpenRouter**, or custom OpenAI-compatible endpoints with auto-detection and resilient mock fallback.
+- **Real-Time SSE Streaming**: Native Server-Sent Events (`POST /api/v1/rag/stream`) emit initial retrieval context, real-time token chunks, and final guardrail verification.
+- **Resilient Multi-Tier Caching**: Backed by Redis with automatic fallback to an in-memory TTL store, caching verified responses to cut latency and API token costs.
 - **Deterministic Guardrails**: Validates input against prompt injection patterns and semantically verifies AI completions against active domain rules before dispatching to users.
-- **Fault-Tolerant Circuit Breakers**: Built-in state machine breakers (`CLOSED` → `OPEN` → `HALF_OPEN`) safeguarding calls to LLM providers, Neo4j, and PostgreSQL.
+- **Fault-Tolerant Circuit Breakers**: Built-in state machine breakers (`CLOSED` → `OPEN` → `HALF_OPEN`) safeguarding calls to LLM providers, Neo4j, PostgreSQL, and Redis.
+- **Dynamic Ingestion APIs**: Standard REST endpoints for indexing vector documents (`POST /documents`) and registering knowledge graph constraints (`POST /constraints`).
 - **Offline & Testing Resilient**: Seamless in-memory fallback stores allow the engine to be tested or evaluated in local environments even before external database containers are booted.
-- **Standardized REST API**: Ready-to-integrate Express engine with route-level rate limiting, OpenAPI-ready validation, and structured Pino logging.
 
 ---
 
@@ -108,20 +110,16 @@ Clone the repository and copy the environment template:
 cp .env.example .env
 ```
 
-### 3. Start Database Infrastructure
-Spin up PostgreSQL (with `pgvector`), Neo4j, and Redis:
+### 3. Start Infrastructure & App via Docker
+Spin up PostgreSQL (with `pgvector`), Neo4j, Redis, and the SafetyGraph Engine:
 ```bash
 docker compose up -d
 ```
 
-### 4. Install Dependencies & Build
+Or run locally with Node.js:
 ```bash
 npm install
 npm run build
-```
-
-### 5. Launch the Development Server
-```bash
 npm run dev
 ```
 The server will start at `http://localhost:4000`.
@@ -139,6 +137,11 @@ GET /health
 {
   "status": "ok",
   "service": "SafetyGraph Engine",
+  "databases": {
+    "postgres": true,
+    "neo4j": true,
+    "redis": true
+  },
   "timestamp": "2026-09-07T07:50:00.000Z"
 }
 ```
@@ -167,6 +170,13 @@ Returns real-time operational status and failure metrics for all active service 
     },
     {
       "name": "postgres",
+      "state": "CLOSED",
+      "failureCount": 0,
+      "successCount": 0,
+      "lastFailureTime": null
+    },
+    {
+      "name": "redis",
       "state": "CLOSED",
       "failureCount": 0,
       "successCount": 0,
@@ -201,18 +211,60 @@ Content-Type: application/json
     "name": "anthropic",
     "model": "claude-3-5-sonnet-20241022"
   },
-  "safety_verified": true
+  "safety_verified": true,
+  "cached": false
 }
 ```
 
-**Guardrail Violation Response (HTTP 403):**
-```json
+### Real-Time SSE Streaming Query
+```http
+POST /api/v1/rag/stream
+Content-Type: application/json
+
 {
-  "error": "E_GUARDRAIL",
-  "message": "The generated response violated hard safety constraints.",
-  "issues": [
-    "Advice actively recommends 'ibuprofen', which violates constraint: 'Patient has severe asthma; avoid NSAIDs like ibuprofen'"
-  ]
+  "query": "What are safe analgesic alternatives for patients with asthma?",
+  "entities": ["asthma"]
+}
+```
+
+**Stream Protocol (`text/event-stream`):**
+```
+event: metadata
+data: {"constraints_applied":["Patient has severe asthma; avoid NSAIDs like ibuprofen"],"vector_sources":[{"id":"doc_med_02","similarity":0.9}],"provider":{"name":"mock","model":"deterministic-mock-v1"}}
+
+event: chunk
+data: {"chunk":"According "}
+
+event: chunk
+data: {"chunk":"to verified "}
+
+event: chunk
+data: {"chunk":"reference material: ..."}
+
+event: done
+data: {"safe":true,"response":"According to verified reference material: Acetaminophen..."}
+```
+
+### Document Ingestion
+```http
+POST /api/v1/rag/documents
+Content-Type: application/json
+
+{
+  "id": "doc_cardio_01",
+  "content": "Beta-blockers can induce bronchospasm in asthmatic patients.",
+  "metadata": { "category": "cardiology" }
+}
+```
+
+### Knowledge Graph Constraint Ingestion
+```http
+POST /api/v1/rag/constraints
+Content-Type: application/json
+
+{
+  "entity": "propranolol",
+  "constraint": "Contraindicated in patients with active asthma"
 }
 ```
 
@@ -223,7 +275,7 @@ Content-Type: application/json
 The repository contains automated unit and integration tests powered by Jest:
 
 ```bash
-# Run test suite (40 tests across circuits, guardrails, providers, and routes)
+# Run test suite (69 tests across circuits, guardrails, providers, caching, lifecycle, and routes)
 npm test
 
 # Run test suite with coverage report

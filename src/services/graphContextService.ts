@@ -15,6 +15,8 @@ export class GraphContextService {
     ['aspirin', ['Patient has severe asthma; avoid NSAIDs like aspirin']],
   ]);
 
+  private isConnected = false;
+
   constructor() {
     this.initDriver();
   }
@@ -27,7 +29,32 @@ export class GraphContextService {
       this.driver = neo4j.driver(uri, neo4j.auth.basic(user, password));
     } catch (error) {
       logger.warn('Neo4j driver initialization deferred; operating in resilient fallback mode');
+      this.isConnected = false;
     }
+  }
+
+  /**
+   * Asynchronously verify connectivity to Neo4j cluster/server
+   */
+  async verifyConnectivity(): Promise<boolean> {
+    if (!this.driver) return false;
+
+    try {
+      return await this.dbBreaker.execute(async () => {
+        const serverInfo = await this.driver!.getServerInfo();
+        this.isConnected = true;
+        logger.info({ agent: serverInfo.agent }, 'Neo4j connectivity verified');
+        return true;
+      });
+    } catch (err: any) {
+      logger.warn({ err: err.message }, 'Neo4j connection unavailable; operating in resilient fallback mode');
+      this.isConnected = false;
+      return false;
+    }
+  }
+
+  isReady(): boolean {
+    return this.isConnected;
   }
 
   /**
@@ -87,6 +114,9 @@ export class GraphContextService {
         await this.driver.close();
       } catch (err: any) {
         logger.debug({ err: err.message }, 'Error closing Neo4j driver');
+      } finally {
+        this.driver = null;
+        this.isConnected = false;
       }
     }
   }

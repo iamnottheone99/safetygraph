@@ -4,6 +4,9 @@ import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import pino from 'pino';
 import ragRoutes from './routes/ragRoutes';
+import { vectorService } from './services/vectorService';
+import { graphContextService } from './services/graphContextService';
+import { cacheService } from './services/cacheService';
 
 const logger = pino();
 const app = express();
@@ -26,6 +29,11 @@ app.get('/health', (req: Request, res: Response) => {
   res.json({
     status: 'ok',
     service: 'SafetyGraph Engine',
+    databases: {
+      postgres: vectorService.isReady(),
+      neo4j: graphContextService.isReady(),
+      redis: cacheService.isReady()
+    },
     timestamp: new Date().toISOString()
   });
 });
