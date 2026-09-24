@@ -26,6 +26,7 @@ coverage/
 # Graphify & Local tooling outputs
 graphify-out/
 .engram/
+.zvec-grep/
 safetygraph-architecture*
 *.visual-check.*
 

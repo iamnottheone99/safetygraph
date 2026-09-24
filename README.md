@@ -14,6 +14,8 @@ By synthesizing the semantic adaptability of **Vector Search (`pgvector`)** with
 
 ## 🏗️ Architecture
 
+> 💡 **Interactive Architecture Diagram**: An interactive, full-system architecture diagram is viewable at [`safetygraph-architecture.html`](safetygraph-architecture.html) (authored and rendered via Archify).
+
 ```
                                   ┌────────────────────────┐
                                   │   User Request Query   │
