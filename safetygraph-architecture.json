@@ -1,0 +1,232 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "SafetyGraph Dual-Retrieval & System One Architecture",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "dual-retrieval",
+        "label": "Dual Retrieval Path",
+        "focus": ["input_guard", "pgvector", "neo4j", "synthesizer"],
+        "note": "Parallel retrieval of semantic vector context and deterministic knowledge graph constraints."
+      },
+      {
+        "id": "guardrail-pipeline",
+        "label": "Two-Tier Safety Guardrails",
+        "focus": ["llm", "tier1_guard", "systemone", "payload"],
+        "note": "Tier 1 synchronous regex validation paired with Tier 2 Ollama System One tev1:0.8b semantic decision model."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "client",
+      "type": "external",
+      "label": "User Request",
+      "sublabel": "HTTP REST Client",
+      "pos": [50, 140],
+      "size": [130, 60]
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "Fastify Engine",
+      "sublabel": "API Gateway",
+      "tag": "Rate Limited",
+      "pos": [240, 140],
+      "size": [140, 60]
+    },
+    {
+      "id": "input_guard",
+      "type": "security",
+      "label": "Input Guardrail",
+      "sublabel": "Injection & XSS",
+      "pos": [440, 140],
+      "size": [150, 60]
+    },
+    {
+      "id": "pgvector",
+      "type": "database",
+      "label": "Vector Search",
+      "sublabel": "pgvector :5432",
+      "brand": "postgresql",
+      "pos": [690, 50],
+      "size": [150, 60]
+    },
+    {
+      "id": "neo4j",
+      "type": "database",
+      "label": "Knowledge Graph",
+      "sublabel": "Neo4j :7687",
+      "pos": [690, 230],
+      "size": [150, 60]
+    },
+    {
+      "id": "synthesizer",
+      "type": "backend",
+      "label": "Prompt Synthesizer",
+      "sublabel": "Context & Constraints",
+      "pos": [930, 140],
+      "size": [150, 60]
+    },
+    {
+      "id": "llm",
+      "type": "cloud",
+      "label": "Multi-LLM Tier",
+      "sublabel": "Provider-Agnostic",
+      "tag": "Circuit Breaker",
+      "pos": [930, 340],
+      "size": [150, 60]
+    },
+    {
+      "id": "tier1_guard",
+      "type": "security",
+      "label": "Tier 1 Regex Guard",
+      "sublabel": "In-Memory Fast Check",
+      "pos": [690, 340],
+      "size": [160, 60]
+    },
+    {
+      "id": "systemone",
+      "type": "backend",
+      "label": "Tier 2 System One",
+      "sublabel": "Ollama tev1:0.8b",
+      "tag": "/v1/systemone",
+      "pos": [440, 340],
+      "size": [160, 60]
+    },
+    {
+      "id": "payload",
+      "type": "frontend",
+      "label": "Verified Safe Payload",
+      "sublabel": "Sanitized Clinical RAG",
+      "pos": [190, 340],
+      "size": [160, 60]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "security-group",
+      "label": "Ingress & Pre-Retrieval",
+      "wraps": ["api", "input_guard"]
+    },
+    {
+      "kind": "region",
+      "label": "Verified Dual-Retrieval Stores",
+      "wraps": ["pgvector", "neo4j"]
+    },
+    {
+      "kind": "security-group",
+      "label": "Two-Tier Post-Generation Guardrails",
+      "wraps": ["tier1_guard", "systemone"]
+    }
+  ],
+  "connections": [
+    {
+      "id": "client-api",
+      "from": "client",
+      "to": "api",
+      "label": "POST /query",
+      "variant": "emphasis"
+    },
+    {
+      "id": "api-guard",
+      "from": "api",
+      "to": "input_guard",
+      "label": "validate"
+    },
+    {
+      "id": "guard-vector",
+      "from": "input_guard",
+      "to": "pgvector",
+      "label": "semantic query",
+      "fromSide": "top",
+      "toSide": "left"
+    },
+    {
+      "id": "guard-neo4j",
+      "from": "input_guard",
+      "to": "neo4j",
+      "label": "entity constraints",
+      "fromSide": "bottom",
+      "toSide": "left"
+    },
+    {
+      "id": "vector-synth",
+      "from": "pgvector",
+      "to": "synthesizer",
+      "label": "context chunks",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "neo4j-synth",
+      "from": "neo4j",
+      "to": "synthesizer",
+      "label": "hard rules",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "synth-llm",
+      "from": "synthesizer",
+      "to": "llm",
+      "label": "prompt payload",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelAt": [1005, 270]
+    },
+    {
+      "id": "llm-tier1",
+      "from": "llm",
+      "to": "tier1_guard",
+      "label": "raw completion",
+      "fromSide": "left",
+      "toSide": "right"
+    },
+    {
+      "id": "tier1-systemone",
+      "from": "tier1_guard",
+      "to": "systemone",
+      "label": "semantic check",
+      "fromSide": "left",
+      "toSide": "right"
+    },
+    {
+      "id": "systemone-payload",
+      "from": "systemone",
+      "to": "payload",
+      "label": "verified safe",
+      "variant": "security",
+      "fromSide": "left",
+      "toSide": "right"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Dual Retrieval",
+      "items": [
+        "PostgreSQL pgvector retrieves top-k semantic similarity chunks",
+        "Neo4j traverses relational knowledge graph for non-negotiable entity constraints"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Two-Tier Guardrails",
+      "items": [
+        "Tier 1 fast in-memory regex filters blatant contraindications and directives",
+        "Tier 2 Ollama-hosted System One tev1:0.8b detects subtle semantic violations via /v1/systemone"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Resilient Orchestration",
+      "items": [
+        "Provider-agnostic LLM tier (Anthropic, OpenAI, Ollama, Groq, DeepSeek) with circuit breakers",
+        "Clean stateless HTTP architecture without child process lifecycle dependencies"
+      ]
+    }
+  ]
+}

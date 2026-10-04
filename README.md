@@ -86,7 +86,7 @@ SafetyGraph is engineered for **high-stakes, zero-tolerance environments** where
 
 ### 1. Clinical Decision Support & Pharmacology (Healthcare)
 * **The Problem**: Pure vector search retrieves medical literature discussing various treatments. When asked about symptom management for a complex patient, LLMs frequently synthesize plausible-sounding but lethal recommendations (e.g., suggesting Ibuprofen or Naproxen to a patient with severe asthma, NSAID-induced bronchospasm, or renal insufficiency).
-* **SafetyGraph Solution**: Hard contraindications are encoded in the Neo4j Knowledge Graph as deterministic relationships (e.g. `(:Condition {name: "Asthma"})-[:CONTRAINDICATES]->(:Medication {name: "Ibuprofen"})`). SafetyGraph extracts active patient entities, fetches these non-negotiable boundaries, injects them as mandatory prompt constraints, and runs post-generation semantic validation (regex patterns + local Kev-0.8B) to guarantee prohibited substances are never recommended.
+* **SafetyGraph Solution**: Hard contraindications are encoded in the Neo4j Knowledge Graph as deterministic relationships (e.g. `(:Condition {name: "Asthma"})-[:CONTRAINDICATES]->(:Medication {name: "Ibuprofen"})`). SafetyGraph extracts active patient entities, fetches these non-negotiable boundaries, injects them as mandatory prompt constraints, and runs post-generation semantic validation (regex patterns + local Ollama-hosted System One `tev1:0.8b`) to guarantee prohibited substances are never recommended.
 
 ### 2. Financial Regulatory & Investment Advisory (FinTech)
 * **The Problem**: Conversational wealth-management bots or research tools can inadvertently make unauthorized return guarantees, recommend restricted products to non-accredited retail investors, or breach cross-border jurisdictional marketing regulations (e.g., SEC Rule 506(c), FINRA 2210, MiFID II).
@@ -106,7 +106,7 @@ SafetyGraph is engineered for **high-stakes, zero-tolerance environments** where
 | :--- | :--- | :--- | :--- |
 | **Retrieval Mechanism** | Probabilistic vector embeddings only | Entity graph traversals only | **Dual-Retrieval** (PostgreSQL `pgvector` + Neo4j) |
 | **Negative Constraints** | ❌ Weak (LLMs ignore negative system prompt rules) | ⚠️ Partial (Complex Cypher required) | ✅ **Deterministic & Enforced** via graph & guardrails |
-| **Post-Gen Validation** | ❌ None (Relies entirely on model obedience) | ❌ None | ✅ **Two-Tier Semantic Guard** (Regex + Kev-0.8B) |
+| **Post-Gen Validation** | ❌ None (Relies entirely on model obedience) | ❌ None | ✅ **Two-Tier Semantic Guard** (Regex + System One `tev1:0.8b`) |
 | **Hallucination Risk** | High in edge cases or contradictory context | Moderate | **Near-Zero for monitored domain entities** |
 | **Model Independence** | Tied to prompt formatting per model | Model-dependent prompts | ✅ **100% Provider-Agnostic** (OpenAI, Anthropic, Ollama, etc.) |
 | **Resilience / Fallback** | Hard failure if database drops | Hard failure if graph drops | ✅ **Built-in Circuit Breakers & In-Memory Fallbacks** |
@@ -534,7 +534,7 @@ async function executeInternalVerifiedPipeline(query: string, entities: string[]
     contextData: { constraints: hardConstraints, vectorContext: vectorDocs }
   });
 
-  // 3. Post-generation semantic guardrail validation (Regex + Kev-0.8B)
+  // 3. Post-generation semantic guardrail validation (Regex + System One tev1:0.8b)
   const sanitized = sanitizeOutput(rawCompletion);
   const safety = await validateSafetyAsync(sanitized, { hardConstraints });
 
@@ -565,7 +565,7 @@ When an LLM attempts to generate a response violating domain constraints, Safety
     "Output recommends prohibited entity 'ibuprofen' which violates constraint: 'Patient has severe reactive airway disease; strictly avoid all NSAIDs.'"
   ],
   "verification": {
-    "evaluatedBy": "kev-0.8b",
+    "evaluatedBy": "systemone",
     "latencyMs": 42,
     "confidenceScore": 0.98
   }

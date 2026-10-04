@@ -27,7 +27,6 @@ coverage/
 graphify-out/
 .engram/
 .zvec-grep/
-safetygraph-architecture*
 *.visual-check.*
 
 # Operating System

@@ -48,15 +48,13 @@ export function validateEnv(envSource: Record<string, string | undefined> = proc
     CUSTOM_LLM_API_KEY: str({ default: 'custom' }),
     CUSTOM_LLM_MODEL: str({ default: 'custom-model' }),
 
-    // Kev System One Guardrail Configuration
-    KEV_ENABLED: bool({ default: false }),
-    KEV_AUTO_MANAGE: bool({ default: true }),
-    KEV_LOCAL_PATH: str({ default: 'C:\\Users\\ashmi\\Documents\\Projects\\kev' }),
-    KEV_BASE_URL: str({ default: 'http://localhost:8009' }),
-    KEV_API_KEY: str({ default: '' }),
-    KEV_MODEL: str({ default: 'jaredpalmer/kev-0.8b' }),
-    KEV_TIMEOUT_MS: num({ default: 350 }),
-    KEV_THRESHOLD_NOUL: num({ default: 0.60 }),
+    // System One Guardrail Configuration (Ollama-hosted decision models like tev1:0.8b)
+    SYSTEM_ONE_ENABLED: bool({ default: process.env.KEV_ENABLED === 'true' || false }),
+    SYSTEM_ONE_BASE_URL: str({ default: process.env.KEV_BASE_URL || 'http://localhost:11434' }),
+    SYSTEM_ONE_API_KEY: str({ default: process.env.KEV_API_KEY || '' }),
+    SYSTEM_ONE_MODEL: str({ default: process.env.KEV_MODEL || 'tev1:0.8b' }),
+    SYSTEM_ONE_TIMEOUT_MS: num({ default: process.env.KEV_TIMEOUT_MS ? Number(process.env.KEV_TIMEOUT_MS) : 500 }),
+    SYSTEM_ONE_THRESHOLD_NOUL: num({ default: process.env.KEV_THRESHOLD_NOUL ? Number(process.env.KEV_THRESHOLD_NOUL) : 0.60 }),
 
     // Guardrail Limits
     GUARDRAIL_MAX_INPUT: num({ default: 10000 }),

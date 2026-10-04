@@ -4,7 +4,7 @@
  */
 import { AppError } from '../utils/errors';
 import { env } from '../config/env';
-import { kevService, KevSafetyEvaluation } from './kevService';
+import { systemOneService, SystemOneSafetyEvaluation, KevSafetyEvaluation } from './systemOneService';
 import pino from 'pino';
 
 const logger = pino();
@@ -232,12 +232,12 @@ export function validateSafety(
 
 /**
  * Hybrid Semantic & Deterministic Guardrail:
- * Combines Tier 1 in-memory regex with Tier 2 Kev System One semantic evaluation.
+ * Combines Tier 1 in-memory regex with Tier 2 System One semantic evaluation (Ollama decision models).
  */
 export async function validateSafetyAsync(
   advice: string,
   safetyProfile: SafetyProfile
-): Promise<SafetyCheckResult & { evaluationMetadata?: KevSafetyEvaluation }> {
+): Promise<SafetyCheckResult & { evaluationMetadata?: SystemOneSafetyEvaluation }> {
   // 1. Tier 1: Fast in-memory regex check (<1ms)
   const syncResult = validateSafety(advice, safetyProfile);
   if (!syncResult.safe) {
@@ -258,24 +258,24 @@ export async function validateSafetyAsync(
     };
   }
 
-  // 2. Tier 2: Kev System One semantic check
-  if (env.KEV_ENABLED && safetyProfile.hardConstraints.length > 0) {
+  // 2. Tier 2: System One decision engine semantic check
+  if (env.SYSTEM_ONE_ENABLED && safetyProfile.hardConstraints.length > 0) {
     try {
-      const kevResult = await kevService.evaluateSafety(advice, safetyProfile.hardConstraints);
-      if (!kevResult.safe) {
+      const decisionResult = await systemOneService.evaluateSafety(advice, safetyProfile.hardConstraints);
+      if (!decisionResult.safe) {
         return {
           safe: false,
-          issues: kevResult.issues,
-          evaluationMetadata: kevResult,
+          issues: decisionResult.issues,
+          evaluationMetadata: decisionResult,
         };
       }
       return {
         safe: true,
         issues: [],
-        evaluationMetadata: kevResult,
+        evaluationMetadata: decisionResult,
       };
     } catch (err: any) {
-      logger.warn({ err: err.message }, 'Kev evaluation failed / circuit tripped; falling back to regex result');
+      logger.warn({ err: err.message }, 'System One evaluation failed / circuit tripped; falling back to regex result');
       return {
         ...syncResult,
         evaluationMetadata: {
