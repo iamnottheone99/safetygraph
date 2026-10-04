@@ -3,7 +3,8 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-blue.svg)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18-green.svg)](https://nodejs.org/)
-[![Tests](https://img.shields.io/badge/Tests-69%20Passing-brightgreen.svg)](https://jestjs.io/)
+[![Fastify](https://img.shields.io/badge/Fastify-5.2-black.svg)](https://fastify.dev/)
+[![Tests](https://img.shields.io/badge/Tests-76%20Passing-brightgreen.svg)](https://jestjs.io/)
 [![Model-Provider Agnostic](https://img.shields.io/badge/LLM-Model--Provider%20Agnostic-orange.svg)](#-supported-llm-providers)
 
 **SafetyGraph** is an open-source, **model-provider-agnostic**, headless hybrid RAG engine designed to enforce **deterministic guardrails** and hard constraints onto LLM generation pipelines.

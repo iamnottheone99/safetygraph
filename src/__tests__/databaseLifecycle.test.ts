@@ -1,6 +1,5 @@
 import { VectorService } from '../services/vectorService';
 import { GraphContextService } from '../services/graphContextService';
-import request from 'supertest';
 import app from '../app';
 
 describe('Phase 1: Database & Lifecycle Verification', () => {
@@ -15,6 +14,10 @@ describe('Phase 1: Database & Lifecycle Verification', () => {
   afterEach(async () => {
     await vectorService.close();
     await graphContextService.close();
+  });
+
+  afterAll(async () => {
+    await app.close();
   });
 
   describe('VectorService Embedding & Search Pipeline', () => {
@@ -76,13 +79,17 @@ describe('Phase 1: Database & Lifecycle Verification', () => {
 
   describe('Health Check Subsystem Reporting', () => {
     test('should return database readiness details in /health endpoint', async () => {
-      const res = await request(app).get('/health');
-      expect(res.status).toBe(200);
-      expect(res.body).toHaveProperty('databases');
-      expect(res.body.databases).toHaveProperty('postgres');
-      expect(res.body.databases).toHaveProperty('neo4j');
-      expect(typeof res.body.databases.postgres).toBe('boolean');
-      expect(typeof res.body.databases.neo4j).toBe('boolean');
+      const res = await app.inject({
+        method: 'GET',
+        url: '/health',
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body).toHaveProperty('databases');
+      expect(body.databases).toHaveProperty('postgres');
+      expect(body.databases).toHaveProperty('neo4j');
+      expect(typeof body.databases.postgres).toBe('boolean');
+      expect(typeof body.databases.neo4j).toBe('boolean');
     });
   });
 });

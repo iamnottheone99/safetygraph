@@ -3,7 +3,6 @@ import {
   sanitizeOutput,
   validateSafety,
   truncateContext,
-  validateSchema,
   validateUserContext,
 } from '../services/guardrails';
 
@@ -134,13 +133,6 @@ describe('Guardrails Service', () => {
       const longContext = 'w '.repeat(5000);
       const truncated = truncateContext(longContext, 100);
       expect(truncated).toContain('[truncated due to length limit]');
-    });
-  });
-
-  describe('validateSchema', () => {
-    test('should validate required object fields', () => {
-      expect(validateSchema({ query: 'test', user: 'u1' }, ['query', 'user'])).toBe(true);
-      expect(() => validateSchema({ query: 'test' }, ['query', 'user'])).toThrow(/Missing required field: user/);
     });
   });
 });

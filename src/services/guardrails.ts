@@ -3,6 +3,8 @@
  * Input validation, output sanitization, and deterministic safety checks for AI requests
  */
 import { AppError } from '../utils/errors';
+import { env } from '../config/env';
+import { kevService, KevSafetyEvaluation } from './kevService';
 import pino from 'pino';
 
 const logger = pino();
@@ -74,20 +76,6 @@ export function validateInput(text: any, options: ValidationOptions = {}): boole
     const htmlPattern = /<script[\s>]|javascript:|on\w+=/i;
     if (htmlPattern.test(input)) {
       throw createError('E_VALIDATION', 'HTML/scripts not allowed');
-    }
-  }
-
-  return true;
-}
-
-export function validateSchema(payload: any, requiredFields: string[]): boolean {
-  if (!payload || typeof payload !== 'object') {
-    throw createError('E_VALIDATION', 'Invalid request payload');
-  }
-
-  for (const field of requiredFields) {
-    if (payload[field] === undefined || payload[field] === null) {
-      throw createError('E_VALIDATION', `Missing required field: ${field}`);
     }
   }
 
@@ -240,4 +228,71 @@ export function validateSafety(
     safe: issues.length === 0,
     issues
   };
+}
+
+/**
+ * Hybrid Semantic & Deterministic Guardrail:
+ * Combines Tier 1 in-memory regex with Tier 2 Kev System One semantic evaluation.
+ */
+export async function validateSafetyAsync(
+  advice: string,
+  safetyProfile: SafetyProfile
+): Promise<SafetyCheckResult & { evaluationMetadata?: KevSafetyEvaluation }> {
+  // 1. Tier 1: Fast in-memory regex check (<1ms)
+  const syncResult = validateSafety(advice, safetyProfile);
+  if (!syncResult.safe) {
+    return {
+      ...syncResult,
+      evaluationMetadata: {
+        safe: false,
+        violatesConstraints: true,
+        violationProbability: 1.0,
+        severity: 'critical',
+        severityConfidence: 1.0,
+        jailbreakDetected: false,
+        latencyMs: 0,
+        evaluatedBy: 'regex_fallback',
+        modelUsed: 'regex-engine',
+        issues: syncResult.issues,
+      }
+    };
+  }
+
+  // 2. Tier 2: Kev System One semantic check
+  if (env.KEV_ENABLED && safetyProfile.hardConstraints.length > 0) {
+    try {
+      const kevResult = await kevService.evaluateSafety(advice, safetyProfile.hardConstraints);
+      if (!kevResult.safe) {
+        return {
+          safe: false,
+          issues: kevResult.issues,
+          evaluationMetadata: kevResult,
+        };
+      }
+      return {
+        safe: true,
+        issues: [],
+        evaluationMetadata: kevResult,
+      };
+    } catch (err: any) {
+      logger.warn({ err: err.message }, 'Kev evaluation failed / circuit tripped; falling back to regex result');
+      return {
+        ...syncResult,
+        evaluationMetadata: {
+          safe: syncResult.safe,
+          violatesConstraints: false,
+          violationProbability: 0,
+          severity: 'none',
+          severityConfidence: 0,
+          jailbreakDetected: false,
+          latencyMs: 0,
+          evaluatedBy: 'regex_fallback',
+          modelUsed: 'regex-engine',
+          issues: syncResult.issues,
+        }
+      };
+    }
+  }
+
+  return syncResult;
 }

@@ -1,4 +1,4 @@
-import { cleanEnv, str, num, port } from 'envalid';
+import { cleanEnv, str, num, port, bool } from 'envalid';
 import 'dotenv/config';
 
 export function validateEnv(envSource: Record<string, string | undefined> = process.env) {
@@ -47,6 +47,16 @@ export function validateEnv(envSource: Record<string, string | undefined> = proc
     CUSTOM_LLM_BASE_URL: str({ default: 'http://localhost:8000/v1' }),
     CUSTOM_LLM_API_KEY: str({ default: 'custom' }),
     CUSTOM_LLM_MODEL: str({ default: 'custom-model' }),
+
+    // Kev System One Guardrail Configuration
+    KEV_ENABLED: bool({ default: false }),
+    KEV_AUTO_MANAGE: bool({ default: true }),
+    KEV_LOCAL_PATH: str({ default: 'C:\\Users\\ashmi\\Documents\\Projects\\kev' }),
+    KEV_BASE_URL: str({ default: 'http://localhost:8009' }),
+    KEV_API_KEY: str({ default: '' }),
+    KEV_MODEL: str({ default: 'jaredpalmer/kev-0.8b' }),
+    KEV_TIMEOUT_MS: num({ default: 350 }),
+    KEV_THRESHOLD_NOUL: num({ default: 0.60 }),
 
     // Guardrail Limits
     GUARDRAIL_MAX_INPUT: num({ default: 10000 }),

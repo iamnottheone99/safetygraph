@@ -1,50 +1,66 @@
-import request from 'supertest';
-import app from '../app';
-import { graphContextService } from '../services/graphContextService';
-import { vectorService } from '../services/vectorService';
-import { cacheService } from '../services/cacheService';
+import { buildApp } from '../app';
+import { FastifyInstance } from 'fastify';
 
 describe('RAG API Routes Integration', () => {
+  let app: FastifyInstance;
+
+  beforeAll(async () => {
+    app = buildApp();
+    await app.ready();
+  });
+
   afterAll(async () => {
-    await graphContextService.close();
-    await vectorService.close();
-    await cacheService.close();
+    await app.close();
   });
 
   describe('GET /health', () => {
     test('should return 200 OK with service status and database health', async () => {
-      const res = await request(app).get('/health');
-      expect(res.status).toBe(200);
-      expect(res.body.status).toBe('ok');
-      expect(res.body.service).toBe('SafetyGraph Engine');
-      expect(res.body).toHaveProperty('databases');
+      const res = await app.inject({
+        method: 'GET',
+        url: '/health',
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.status).toBe('ok');
+      expect(body.service).toBe('SafetyGraph Engine');
+      expect(body).toHaveProperty('databases');
     });
   });
 
   describe('GET /api/v1/rag/circuits', () => {
     test('should return circuit breaker status list', async () => {
-      const res = await request(app).get('/api/v1/rag/circuits');
-      expect(res.status).toBe(200);
-      expect(res.body).toHaveProperty('circuits');
-      expect(Array.isArray(res.body.circuits)).toBe(true);
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/v1/rag/circuits',
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body).toHaveProperty('circuits');
+      expect(Array.isArray(body.circuits)).toBe(true);
     });
   });
 
   describe('POST /api/v1/rag/query', () => {
     test('should reject missing query with 400', async () => {
-      const res = await request(app)
-        .post('/api/v1/rag/query')
-        .send({});
-      expect(res.status).toBe(400);
-      expect(res.body).toHaveProperty('errors');
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/rag/query',
+        payload: {},
+      });
+      expect(res.statusCode).toBe(400);
+      const body = res.json();
+      expect(body).toHaveProperty('errors');
     });
 
     test('should reject malicious script injection input with 400', async () => {
-      const res = await request(app)
-        .post('/api/v1/rag/query')
-        .send({ query: '<script>alert("hack")</script>' });
-      expect(res.status).toBe(400);
-      expect(res.body.error).toBe('E_GUARDRAIL');
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/rag/query',
+        payload: { query: '<script>alert("hack")</script>' },
+      });
+      expect(res.statusCode).toBe(400);
+      const body = res.json();
+      expect(body.error).toBe('E_GUARDRAIL');
     });
 
     test('should execute full verified dual-retrieval pipeline for valid queries', async () => {
@@ -53,96 +69,117 @@ describe('RAG API Routes Integration', () => {
         entities: ['asthma', 'acetaminophen'],
       };
 
-      const res = await request(app)
-        .post('/api/v1/rag/query')
-        .send(queryPayload);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/rag/query',
+        payload: queryPayload,
+      });
 
-      expect(res.status).toBe(200);
-      expect(res.body).toHaveProperty('response');
-      expect(res.body).toHaveProperty('constraints_applied');
-      expect(res.body).toHaveProperty('vector_sources');
-      expect(res.body.safety_verified).toBe(true);
-      expect(res.body.cached).toBe(false);
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body).toHaveProperty('response');
+      expect(body).toHaveProperty('constraints_applied');
+      expect(body).toHaveProperty('vector_sources');
+      expect(body.safety_verified).toBe(true);
+      expect(body.cached).toBe(false);
 
       // Repeated query should hit cache
-      const cachedRes = await request(app)
-        .post('/api/v1/rag/query')
-        .send(queryPayload);
+      const cachedRes = await app.inject({
+        method: 'POST',
+        url: '/api/v1/rag/query',
+        payload: queryPayload,
+      });
 
-      expect(cachedRes.status).toBe(200);
-      expect(cachedRes.body.cached).toBe(true);
-      expect(cachedRes.body.response).toBe(res.body.response);
+      expect(cachedRes.statusCode).toBe(200);
+      const cachedBody = cachedRes.json();
+      expect(cachedBody.cached).toBe(true);
+      expect(cachedBody.response).toBe(body.response);
     });
   });
 
   describe('POST /api/v1/rag/stream', () => {
     test('should reject invalid or malicious query with 400', async () => {
-      const res = await request(app)
-        .post('/api/v1/rag/stream')
-        .send({ query: '<script>evil()</script>' });
-      expect(res.status).toBe(400);
-      expect(res.body.error).toBe('E_GUARDRAIL');
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/rag/stream',
+        payload: { query: '<script>evil()</script>' },
+      });
+      expect(res.statusCode).toBe(400);
+      const body = res.json();
+      expect(body.error).toBe('E_GUARDRAIL');
     });
 
     test('should stream response as Server-Sent Events with metadata, chunks, and verification', async () => {
-      const res = await request(app)
-        .post('/api/v1/rag/stream')
-        .send({
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/rag/stream',
+        payload: {
           query: 'What are safe pain relief options for asthmatic patients?',
-          entities: ['asthma']
-        });
+          entities: ['asthma'],
+        },
+      });
 
-      expect(res.status).toBe(200);
+      expect(res.statusCode).toBe(200);
       expect(res.headers['content-type']).toContain('text/event-stream');
-      expect(res.text).toContain('event: metadata');
-      expect(res.text).toContain('event: chunk');
-      expect(res.text).toContain('event: done');
-      expect(res.text).toContain('"safe":true');
+      expect(res.body).toContain('event: metadata');
+      expect(res.body).toContain('event: chunk');
+      expect(res.body).toContain('event: done');
+      expect(res.body).toContain('"safe":true');
     });
   });
 
   describe('POST /api/v1/rag/documents', () => {
     test('should reject invalid document payloads with 400', async () => {
-      const res = await request(app)
-        .post('/api/v1/rag/documents')
-        .send({ id: '' });
-      expect(res.status).toBe(400);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/rag/documents',
+        payload: { id: '' },
+      });
+      expect(res.statusCode).toBe(400);
     });
 
     test('should successfully ingest document into vector store', async () => {
-      const res = await request(app)
-        .post('/api/v1/rag/documents')
-        .send({
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/rag/documents',
+        payload: {
           id: 'doc_ingest_test_01',
           content: 'Beta-blockers can cause bronchospasm in susceptible asthmatic patients.',
-          metadata: { category: 'cardiology' }
-        });
+          metadata: { category: 'cardiology' },
+        },
+      });
 
-      expect(res.status).toBe(201);
-      expect(res.body.status).toBe('ok');
-      expect(res.body.id).toBe('doc_ingest_test_01');
+      expect(res.statusCode).toBe(201);
+      const body = res.json();
+      expect(body.status).toBe('ok');
+      expect(body.id).toBe('doc_ingest_test_01');
     });
   });
 
   describe('POST /api/v1/rag/constraints', () => {
     test('should reject invalid constraint payloads with 400', async () => {
-      const res = await request(app)
-        .post('/api/v1/rag/constraints')
-        .send({});
-      expect(res.status).toBe(400);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/rag/constraints',
+        payload: {},
+      });
+      expect(res.statusCode).toBe(400);
     });
 
     test('should successfully register hard constraint for entity', async () => {
-      const res = await request(app)
-        .post('/api/v1/rag/constraints')
-        .send({
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/rag/constraints',
+        payload: {
           entity: 'propranolol',
-          constraint: 'Contraindicated in bronchial asthma'
-        });
+          constraint: 'Contraindicated in bronchial asthma',
+        },
+      });
 
-      expect(res.status).toBe(201);
-      expect(res.body.status).toBe('ok');
-      expect(res.body.entity).toBe('propranolol');
+      expect(res.statusCode).toBe(201);
+      const body = res.json();
+      expect(body.status).toBe('ok');
+      expect(body.entity).toBe('propranolol');
     });
   });
 });

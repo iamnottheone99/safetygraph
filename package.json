@@ -36,13 +36,11 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.81.0",
-    "cors": "^2.8.6",
+    "@fastify/cors": "^11.3.0",
+    "@fastify/rate-limit": "^11.2.0",
     "dotenv": "^17.3.1",
     "envalid": "^8.1.1",
-    "express": "^5.2.1",
-    "express-rate-limit": "^8.3.2",
-    "express-validator": "^7.3.2",
-    "morgan": "^1.10.1",
+    "fastify": "^5.12.5",
     "neo4j-driver": "^6.0.1",
     "openai": "^7.10.0",
     "pg": "^8.20.0",
@@ -51,15 +49,10 @@
     "redis": "^5.11.0"
   },
   "devDependencies": {
-    "@types/cors": "^2.8.19",
-    "@types/express": "^5.0.0",
     "@types/jest": "^30.0.0",
-    "@types/morgan": "^1.9.10",
     "@types/node": "^22.13.10",
     "@types/pg": "^8.23.1",
-    "@types/supertest": "^7.2.1",
     "jest": "^30.3.0",
-    "supertest": "^7.2.2",
     "ts-jest": "^29.4.12",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2"
