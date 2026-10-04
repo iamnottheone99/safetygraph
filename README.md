@@ -80,6 +80,39 @@ By synthesizing the semantic adaptability of **Vector Search (`pgvector`)** with
 
 ---
 
+## 💡 Primary Use Cases & Decision Matrix
+
+SafetyGraph is engineered for **high-stakes, zero-tolerance environments** where hallucinations, missed contraindications, or compliance breaches carry severe regulatory, financial, or physical liability.
+
+### 1. Clinical Decision Support & Pharmacology (Healthcare)
+* **The Problem**: Pure vector search retrieves medical literature discussing various treatments. When asked about symptom management for a complex patient, LLMs frequently synthesize plausible-sounding but lethal recommendations (e.g., suggesting Ibuprofen or Naproxen to a patient with severe asthma, NSAID-induced bronchospasm, or renal insufficiency).
+* **SafetyGraph Solution**: Hard contraindications are encoded in the Neo4j Knowledge Graph as deterministic relationships (e.g. `(:Condition {name: "Asthma"})-[:CONTRAINDICATES]->(:Medication {name: "Ibuprofen"})`). SafetyGraph extracts active patient entities, fetches these non-negotiable boundaries, injects them as mandatory prompt constraints, and runs post-generation semantic validation (regex patterns + local Kev-0.8B) to guarantee prohibited substances are never recommended.
+
+### 2. Financial Regulatory & Investment Advisory (FinTech)
+* **The Problem**: Conversational wealth-management bots or research tools can inadvertently make unauthorized return guarantees, recommend restricted products to non-accredited retail investors, or breach cross-border jurisdictional marketing regulations (e.g., SEC Rule 506(c), FINRA 2210, MiFID II).
+* **SafetyGraph Solution**: Client accreditation tiers, jurisdiction-specific offering limits, and restricted asset lists are queried in Neo4j. If an LLM response suggests an unapproved equity or fails mandatory risk disclosure clauses, SafetyGraph blocks the completion and issues a structured `E_GUARDRAIL` violation.
+
+### 3. Legal Contracts & Corporate Policy Enforcement
+* **The Problem**: Legal copilot assistants reviewing vendor agreements or answering employee policy questions can misinterpret liability caps, indemnity obligations, or confidentiality durations across complex multi-document binders.
+* **SafetyGraph Solution**: Contractual covenants and corporate safety thresholds act as non-negotiable graph constraints evaluated in tandem with semantic vector chunks from company policies.
+
+### 4. Mission-Critical Industrial & Safety SOPs (Aviation, Energy, Manufacturing)
+* **The Problem**: Field technicians querying technical manuals under time pressure may receive speculative workarounds from standard LLMs that inadvertently omit mandatory Lockout/Tagout (LOTO) procedures, toxic gas clearance steps, or high-voltage grounding checks.
+* **SafetyGraph Solution**: Operational procedures and safety prerequisites are modeled as directed acyclic graph dependencies in Neo4j, ensuring mandatory procedural steps cannot be bypassed or re-ordered by generative models.
+
+### 5. Architectural Decision Matrix: When to Choose SafetyGraph
+
+| Evaluation Factor | Standard Vector RAG (LangChain / LlamaIndex) | GraphRAG Alone | SafetyGraph Verified Dual-Retrieval |
+| :--- | :--- | :--- | :--- |
+| **Retrieval Mechanism** | Probabilistic vector embeddings only | Entity graph traversals only | **Dual-Retrieval** (PostgreSQL `pgvector` + Neo4j) |
+| **Negative Constraints** | ❌ Weak (LLMs ignore negative system prompt rules) | ⚠️ Partial (Complex Cypher required) | ✅ **Deterministic & Enforced** via graph & guardrails |
+| **Post-Gen Validation** | ❌ None (Relies entirely on model obedience) | ❌ None | ✅ **Two-Tier Semantic Guard** (Regex + Kev-0.8B) |
+| **Hallucination Risk** | High in edge cases or contradictory context | Moderate | **Near-Zero for monitored domain entities** |
+| **Model Independence** | Tied to prompt formatting per model | Model-dependent prompts | ✅ **100% Provider-Agnostic** (OpenAI, Anthropic, Ollama, etc.) |
+| **Resilience / Fallback** | Hard failure if database drops | Hard failure if graph drops | ✅ **Built-in Circuit Breakers & In-Memory Fallbacks** |
+
+---
+
 ## 🤖 Supported LLM Providers
 
 SafetyGraph is completely decoupled from any single LLM vendor. Configure your provider in `.env` using `LLM_PROVIDER`:
@@ -271,12 +304,287 @@ Content-Type: application/json
 
 ---
 
+## 💻 Implementation Guide & Integration Examples
+
+Below are production-ready code examples demonstrating how to integrate SafetyGraph into your applications and ingestion pipelines.
+
+### Pattern 1: End-to-End Setup & Ingestion Workflow (cURL)
+
+#### Step 1: Ingest Domain Documents into Vector Store
+Index authoritative clinical or compliance guidelines into PostgreSQL `pgvector`:
+```bash
+curl -X POST http://localhost:4000/api/v1/rag/documents \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "doc_guideline_analgesics_2026",
+    "content": "Acetaminophen (paracetamol) is the first-line antipyretic and analgesic for patients with reactive airway disease or aspirin-induced asthma. NSAIDs including ibuprofen, naproxen, and ketorolac carry high risk of precipitating acute bronchospasm.",
+    "metadata": { "specialty": "pulmonology", "evidence_level": "A" }
+  }'
+```
+
+#### Step 2: Register Knowledge Graph Hard Constraints
+Bind non-negotiable entity rules into Neo4j:
+```bash
+curl -X POST http://localhost:4000/api/v1/rag/constraints \
+  -H "Content-Type: application/json" \
+  -d '{
+    "entity": "asthma",
+    "constraint": "Patient has severe reactive airway disease; strictly avoid all NSAIDs (ibuprofen, aspirin, naproxen, ketorolac)."
+  }'
+```
+
+#### Step 3: Execute Verified Query
+Query SafetyGraph with the active patient entities:
+```bash
+curl -X POST http://localhost:4000/api/v1/rag/query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "What can I take for a severe headache?",
+    "entities": ["asthma"]
+  }'
+```
+
+---
+
+### Pattern 2: TypeScript / Node.js Client Implementation
+
+```typescript
+import { fetch } from 'undici'; // or native globalThis.fetch in Node >= 18
+
+interface RagResponse {
+  response: string;
+  constraints_applied: string[];
+  vector_sources: Array<{ id: string; similarity: number }>;
+  safety_verified: boolean;
+  verification_engine: string;
+  cached: boolean;
+}
+
+const SAFETYGRAPH_URL = process.env.SAFETYGRAPH_URL || 'http://localhost:4000';
+
+/**
+ * 1. Synchronous Verified RAG Query
+ */
+async function queryVerifiedRag(prompt: string, entities: string[]): Promise<RagResponse> {
+  const response = await fetch(`${SAFETYGRAPH_URL}/api/v1/rag/query`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query: prompt, entities }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    if (response.status === 403 && errorData.error === 'E_GUARDRAIL') {
+      console.error('🚨 Guardrail Violation Intercepted:', errorData.issues);
+      throw new Error(`SafetyGraph Guardrail Block: ${errorData.message}`);
+    }
+    throw new Error(`SafetyGraph Request Failed (${response.status}): ${JSON.stringify(errorData)}`);
+  }
+
+  return response.json() as Promise<RagResponse>;
+}
+
+/**
+ * 2. Real-Time Server-Sent Events (SSE) Stream Consumer
+ */
+async function streamVerifiedRag(
+  prompt: string,
+  entities: string[],
+  callbacks: {
+    onMetadata?: (meta: any) => void;
+    onChunk?: (token: string) => void;
+    onDone?: (final: any) => void;
+    onViolation?: (violation: any) => void;
+  }
+) {
+  const response = await fetch(`${SAFETYGRAPH_URL}/api/v1/rag/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query: prompt, entities }),
+  });
+
+  if (!response.body) throw new Error('Response body unavailable for streaming');
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const events = buffer.split('\n\n');
+    buffer = events.pop() || '';
+
+    for (const eventBlock of events) {
+      if (!eventBlock.trim()) continue;
+      const lines = eventBlock.split('\n');
+      const eventType = lines.find((l) => l.startsWith('event:'))?.replace('event:', '').trim();
+      const dataStr = lines.find((l) => l.startsWith('data:'))?.replace('data:', '').trim();
+
+      if (!dataStr) continue;
+      const data = JSON.parse(dataStr);
+
+      switch (eventType) {
+        case 'metadata':
+          callbacks.onMetadata?.(data);
+          break;
+        case 'chunk':
+          callbacks.onChunk?.(data.chunk);
+          break;
+        case 'guardrail_violation':
+          callbacks.onViolation?.(data);
+          break;
+        case 'done':
+          callbacks.onDone?.(data);
+          break;
+      }
+    }
+  }
+}
+
+// Example usage:
+async function run() {
+  const result = await queryVerifiedRag('Can I take ibuprofen?', ['asthma']);
+  console.log('Verified Output:', result.response);
+}
+```
+
+---
+
+### Pattern 3: Python Client Implementation (`httpx`)
+
+```python
+import json
+import httpx
+
+SAFETYGRAPH_URL = "http://localhost:4000"
+
+def query_safetygraph(query: str, entities: list[str]) -> dict:
+    """Execute synchronous verified RAG query."""
+    with httpx.Client(base_url=SAFETYGRAPH_URL, timeout=30.0) as client:
+        res = client.post(
+            "/api/v1/rag/query",
+            json={"query": query, "entities": entities}
+        )
+        if res.status_code == 403:
+            err = res.json()
+            print(f"🚨 Blocked by Guardrail: {err.get('issues')}")
+            return {"blocked": True, "error": err}
+        
+        res.raise_for_status()
+        return res.json()
+
+def stream_safetygraph(query: str, entities: list[str]):
+    """Stream real-time tokens and handle verification events via SSE."""
+    with httpx.Client(base_url=SAFETYGRAPH_URL, timeout=60.0) as client:
+        with client.stream(
+            "POST",
+            "/api/v1/rag/stream",
+            json={"query": query, "entities": entities}
+        ) as response:
+            buffer = ""
+            for line in response.iter_lines():
+                if not line.strip():
+                    continue
+                if line.startswith("event: "):
+                    event_type = line[len("event: "):].strip()
+                elif line.startswith("data: "):
+                    payload = json.loads(line[len("data: "):])
+                    if event_type == "metadata":
+                        print(f"📦 Context retrieved from: {payload.get('vector_sources')}")
+                    elif event_type == "chunk":
+                        print(payload.get("chunk"), end="", flush=True)
+                    elif event_type == "guardrail_violation":
+                        print(f"\n🚨 Intercepted Violation: {payload.get('issues')}")
+                    elif event_type == "done":
+                        print(f"\n✅ Generation verified safe via {payload.get('verification_engine')}")
+
+if __name__ == "__main__":
+    stream_safetygraph(
+        query="What antipyretic medication is safe for acute fever?",
+        entities=["asthma"]
+    )
+```
+
+---
+
+### Pattern 4: Direct In-Process Service Integration (Internal Node.js Microservice)
+
+If you are incorporating SafetyGraph directly inside an existing Node.js or TypeScript application without HTTP overhead:
+
+```typescript
+import { buildApp } from './app';
+import { vectorService } from './services/vectorService';
+import { graphContextService } from './services/graphContextService';
+import { aiService } from './services/aiService';
+import { validateSafetyAsync, sanitizeOutput } from './services/guardrails';
+
+async function executeInternalVerifiedPipeline(query: string, entities: string[]) {
+  // 1. Dual-retrieval
+  const [vectorDocs, hardConstraints] = await Promise.all([
+    vectorService.searchSimilar(query, 3),
+    graphContextService.getHardConstraints(entities)
+  ]);
+
+  // 2. Synthesize AI completion
+  const rawCompletion = await aiService.generateResponse({
+    query,
+    contextData: { constraints: hardConstraints, vectorContext: vectorDocs }
+  });
+
+  // 3. Post-generation semantic guardrail validation (Regex + Kev-0.8B)
+  const sanitized = sanitizeOutput(rawCompletion);
+  const safety = await validateSafetyAsync(sanitized, { hardConstraints });
+
+  if (!safety.safe) {
+    throw new Error(`Safety violation: ${safety.issues.join(', ')}`);
+  }
+
+  return {
+    response: sanitized,
+    sources: vectorDocs,
+    constraints: hardConstraints,
+    verification: safety.evaluationMetadata
+  };
+}
+```
+
+---
+
+### Pattern 5: Guardrail Violation Handling & Audit Logging
+
+When an LLM attempts to generate a response violating domain constraints, SafetyGraph returns HTTP 403:
+
+```json
+{
+  "error": "E_GUARDRAIL",
+  "message": "The generated response violated hard safety constraints.",
+  "issues": [
+    "Output recommends prohibited entity 'ibuprofen' which violates constraint: 'Patient has severe reactive airway disease; strictly avoid all NSAIDs.'"
+  ],
+  "verification": {
+    "evaluatedBy": "kev-0.8b",
+    "latencyMs": 42,
+    "confidenceScore": 0.98
+  }
+}
+```
+
+Client applications should handle this response by:
+1. **Fallback Routing**: Providing a verified fallback (e.g., standard clinical disclaimer or escalation message).
+2. **Compliance Auditing**: Forwarding `issues` and `verification` metadata to security or compliance incident queues.
+3. **Model Fine-Tuning / RLHF Loop**: Storing blocked queries to refine prompt schemas or fine-tune downstream reasoning models.
+
+---
+
 ## 🧪 Testing
 
-The repository contains automated unit and integration tests powered by Jest:
+The repository contains automated unit and integration tests powered by Jest and Fastify's native in-memory `app.inject()` harness:
 
 ```bash
-# Run test suite (69 tests across circuits, guardrails, providers, caching, lifecycle, and routes)
+# Run test suite (76 tests across circuits, guardrails, providers, caching, lifecycle, and routes)
 npm test
 
 # Run test suite with coverage report
