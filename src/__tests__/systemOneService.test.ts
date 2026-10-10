@@ -11,7 +11,7 @@ jest.mock('../config/env', () => ({
     SYSTEM_ONE_API_KEY: '',
     SYSTEM_ONE_MODEL: 'tev1:0.8b',
     SYSTEM_ONE_TIMEOUT_MS: 500,
-    SYSTEM_ONE_THRESHOLD_NOUL: 0.60,
+    SYSTEM_ONE_THRESHOLD_NOUL: 0.6,
     GUARDRAIL_MAX_INPUT: 10000,
     GUARDRAIL_MAX_OUTPUT: 50000,
     GUARDRAIL_MAX_CONTEXT_TOKENS: 4000,
@@ -112,8 +112,8 @@ describe('System One Integration', () => {
         json: async () => ({
           model: 'tev1:0.8b',
           answers: {
-            violates_constraints: { type: 'noul', noul: 0.10 },
-            severity: { type: 'choice', choice: 'none', confidence: 0.90 },
+            violates_constraints: { type: 'noul', noul: 0.1 },
+            severity: { type: 'choice', choice: 'none', confidence: 0.9 },
             jailbreak: { type: 'noul', noul: 0.88 },
           },
           latency_ms: 30,
@@ -131,18 +131,28 @@ describe('System One Integration', () => {
     });
 
     it('should trip circuit breaker and fail gracefully after repeated server errors', async () => {
-      global.fetch = jest.fn().mockRejectedValue(new Error('System One service connection refused'));
+      global.fetch = jest
+        .fn()
+        .mockRejectedValue(new Error('System One service connection refused'));
 
       // 3 consecutive failures to trigger threshold
-      await expect(systemOneService.evaluateSafety('Test advice', ['Constraint 1'])).rejects.toThrow();
-      await expect(systemOneService.evaluateSafety('Test advice', ['Constraint 1'])).rejects.toThrow();
-      await expect(systemOneService.evaluateSafety('Test advice', ['Constraint 1'])).rejects.toThrow();
+      await expect(
+        systemOneService.evaluateSafety('Test advice', ['Constraint 1'])
+      ).rejects.toThrow();
+      await expect(
+        systemOneService.evaluateSafety('Test advice', ['Constraint 1'])
+      ).rejects.toThrow();
+      await expect(
+        systemOneService.evaluateSafety('Test advice', ['Constraint 1'])
+      ).rejects.toThrow();
 
       const status = systemOneService.getCircuitStatus();
       expect(status.state).toBe('OPEN');
 
       // Next call fails immediately with circuit open error
-      await expect(systemOneService.evaluateSafety('Test advice', ['Constraint 1'])).rejects.toThrow('circuit breaker is OPEN');
+      await expect(
+        systemOneService.evaluateSafety('Test advice', ['Constraint 1'])
+      ).rejects.toThrow('circuit breaker is OPEN');
     });
   });
 
@@ -190,10 +200,9 @@ describe('System One Integration', () => {
     it('should gracefully fall back to Tier 1 regex when System One endpoint is offline', async () => {
       global.fetch = jest.fn().mockRejectedValue(new Error('System One server down'));
 
-      const result = await validateSafetyAsync(
-        'Prescribe acetaminophen 500mg as needed.',
-        { hardConstraints: ['avoid NSAIDs like ibuprofen'] }
-      );
+      const result = await validateSafetyAsync('Prescribe acetaminophen 500mg as needed.', {
+        hardConstraints: ['avoid NSAIDs like ibuprofen'],
+      });
 
       // Falls back to regex check and passes because acetaminophen is safe
       expect(result.safe).toBe(true);

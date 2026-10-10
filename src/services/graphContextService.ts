@@ -7,7 +7,7 @@ const logger = pino();
 export class GraphContextService {
   private driver: Driver | null = null;
   private dbBreaker = circuitManager.getBreaker('neo4j', { failureThreshold: 3, timeout: 15000 });
-  
+
   // Resilient in-memory fallback knowledge graph for offline testing and local evaluation
   private fallbackConstraints: Map<string, string[]> = new Map([
     ['ibuprofen', ['Patient has severe asthma; avoid NSAIDs like ibuprofen']],
@@ -26,8 +26,12 @@ export class GraphContextService {
       const uri = process.env.NEO4J_URI || 'neo4j://localhost:7687';
       const user = process.env.NEO4J_USER || 'neo4j';
       const password = process.env.NEO4J_PASSWORD || 'password';
-      this.driver = neo4j.driver(uri, neo4j.auth.basic(user, password));
-    } catch (error) {
+      const connectionTimeout = process.env.NODE_ENV === 'test' ? 500 : 5000;
+      this.driver = neo4j.driver(uri, neo4j.auth.basic(user, password), {
+        connectionTimeout,
+        maxConnectionLifetime: 3 * 60 * 60 * 1000,
+      });
+    } catch (_error) {
       logger.warn('Neo4j driver initialization deferred; operating in resilient fallback mode');
       this.isConnected = false;
     }
@@ -47,7 +51,10 @@ export class GraphContextService {
         return true;
       });
     } catch (err: any) {
-      logger.warn({ err: err.message }, 'Neo4j connection unavailable; operating in resilient fallback mode');
+      logger.warn(
+        { err: err.message },
+        'Neo4j connection unavailable; operating in resilient fallback mode'
+      );
       this.isConnected = false;
       return false;
     }
@@ -75,24 +82,30 @@ export class GraphContextService {
   async getHardConstraints(entities: string[]): Promise<string[]> {
     if (!entities || entities.length === 0) return [];
 
-    if (this.driver) {
+    if (this.driver && this.isConnected) {
       try {
         return await this.dbBreaker.execute(async () => {
           const session = this.driver!.session();
           try {
-            const result = await session.run(`
+            const result = await session.run(
+              `
               MATCH (e:Entity)-[:HAS_CONSTRAINT]->(c:Constraint)
               WHERE e.name IN $entities
               RETURN DISTINCT c.name as constraintName
-            `, { entities });
-            
-            return result.records.map(record => record.get('constraintName'));
+            `,
+              { entities }
+            );
+
+            return result.records.map((record) => record.get('constraintName'));
           } finally {
             await session.close();
           }
         });
       } catch (err: any) {
-        logger.warn({ err: err.message }, 'Neo4j connection/query unavailable; utilizing resilient fallback constraints');
+        logger.warn(
+          { err: err.message },
+          'Neo4j connection/query unavailable; utilizing resilient fallback constraints'
+        );
       }
     }
 

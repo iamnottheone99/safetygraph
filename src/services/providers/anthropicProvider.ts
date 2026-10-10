@@ -25,7 +25,7 @@ export class AnthropicProvider implements ILLMProvider {
       max_tokens: options.maxTokens || 1024,
       temperature: options.temperature ?? 0.2,
       system: options.systemPrompt,
-      messages: [{ role: 'user', content: options.query }]
+      messages: [{ role: 'user', content: options.query }],
     });
 
     const firstBlock = message.content[0];
@@ -41,7 +41,7 @@ export class AnthropicProvider implements ILLMProvider {
       max_tokens: options.maxTokens || 1024,
       temperature: options.temperature ?? 0.2,
       system: options.systemPrompt,
-      messages: [{ role: 'user', content: options.query }]
+      messages: [{ role: 'user', content: options.query }],
     });
 
     for await (const chunk of stream) {

@@ -9,7 +9,8 @@ import { env } from './config/env';
 
 export function buildApp(opts: FastifyServerOptions = {}): FastifyInstance {
   const app = Fastify({
-    logger: opts.logger !== undefined ? opts.logger : (process.env.NODE_ENV === 'test' ? false : true),
+    logger:
+      opts.logger !== undefined ? opts.logger : process.env.NODE_ENV === 'test' ? false : true,
     ...opts,
   });
 
@@ -20,14 +21,14 @@ export function buildApp(opts: FastifyServerOptions = {}): FastifyInstance {
   app.register(rateLimit, {
     max: env.RATE_LIMIT_MAX,
     timeWindow: env.RATE_LIMIT_WINDOW_MS,
-    errorResponseBuilder: (request, context) => ({
+    errorResponseBuilder: (_request, _context) => ({
       error: 'E_RATE_LIMITED',
       message: 'Too many requests, please try again later.',
     }),
   });
 
   // Health check endpoint
-  app.get('/health', async (request, reply) => {
+  app.get('/health', async (_request, _reply) => {
     return {
       status: 'ok',
       service: 'SafetyGraph Engine',
@@ -70,11 +71,7 @@ export function buildApp(opts: FastifyServerOptions = {}): FastifyInstance {
 
   // Automatic Lifecycle Teardown Hook (consolidates server shutdown & test cleanup)
   app.addHook('onClose', async () => {
-    await Promise.all([
-      vectorService.close(),
-      graphContextService.close(),
-      cacheService.close(),
-    ]);
+    await Promise.all([vectorService.close(), graphContextService.close(), cacheService.close()]);
   });
 
   // API Routes Plugin

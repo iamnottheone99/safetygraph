@@ -24,7 +24,7 @@ describe('Phase 1: Database & Lifecycle Verification', () => {
     test('should generate deterministic 1536-dimensional normalized embeddings', async () => {
       const embedding = await vectorService.generateEmbedding('Asthma and bronchospasm');
       expect(embedding).toHaveLength(1536);
-      
+
       // Check normalization (length should be approximately 1.0)
       let norm = 0;
       for (const val of embedding) {
@@ -50,7 +50,12 @@ describe('Phase 1: Database & Lifecycle Verification', () => {
     });
 
     test('should support upserting documents into fallback store', async () => {
-      await vectorService.upsertDocument('doc_custom_test', 'Custom clinical protocol for hypertension', undefined, { category: 'cardiology' });
+      await vectorService.upsertDocument(
+        'doc_custom_test',
+        'Custom clinical protocol for hypertension',
+        undefined,
+        { category: 'cardiology' }
+      );
       const results = await vectorService.searchSimilar('hypertension protocol', 1);
       expect(results[0].id).toBe('doc_custom_test');
     });

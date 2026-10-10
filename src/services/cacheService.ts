@@ -20,7 +20,8 @@ export class CacheService {
   }
 
   private initClient(): void {
-    const redisUrl = process.env.REDIS_URL || 
+    const redisUrl =
+      process.env.REDIS_URL ||
       `redis://${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || '6379'}`;
 
     try {
@@ -37,7 +38,10 @@ export class CacheService {
         this.isConnected = false;
       });
     } catch (err: any) {
-      logger.warn({ err: err.message }, 'Redis client initialization deferred; operating in memory-only mode');
+      logger.warn(
+        { err: err.message },
+        'Redis client initialization deferred; operating in memory-only mode'
+      );
       this.isConnected = false;
     }
   }
@@ -58,7 +62,10 @@ export class CacheService {
         return true;
       });
     } catch (err: any) {
-      logger.warn({ err: err.message }, 'Redis connection unavailable; operating with in-memory cache fallback');
+      logger.warn(
+        { err: err.message },
+        'Redis connection unavailable; operating with in-memory cache fallback'
+      );
       this.isConnected = false;
       return false;
     }

@@ -4,7 +4,7 @@
  */
 import { AppError } from '../utils/errors';
 import { env } from '../config/env';
-import { systemOneService, SystemOneSafetyEvaluation, KevSafetyEvaluation } from './systemOneService';
+import { systemOneService, SystemOneSafetyEvaluation } from './systemOneService';
 import pino from 'pino';
 
 const logger = pino();
@@ -21,16 +21,26 @@ export function escapeRegex(str: string): string {
 
 const BLOCKED_PATTERNS = [
   { pattern: /<script[\s>]|javascript:|on\w+=/i, reason: 'Potential script injection' },
-  { pattern: /(?:;|\bunion\s+select|\binsert\s+into|\bdrop\s+table\b)/i, reason: 'Potential SQL injection' },
-  { 
-    pattern: /\b(system_prompt|ignore\s+(?:all\s+)?previous\s+instructions|disregard\s+(?:all\s+)?prior\s+instructions|you\s+are\s+now\s+in\s+developer\s+mode|dan\s+mode|bypass\s+safety\s+filter)\b/i, 
-    reason: 'Prompt injection attempt' 
+  {
+    pattern: /(?:;|\bunion\s+select|\binsert\s+into|\bdrop\s+table\b)/i,
+    reason: 'Potential SQL injection',
+  },
+  {
+    pattern:
+      /\b(system_prompt|ignore\s+(?:all\s+)?previous\s+instructions|disregard\s+(?:all\s+)?prior\s+instructions|you\s+are\s+now\s+in\s+developer\s+mode|dan\s+mode|bypass\s+safety\s+filter)\b/i,
+    reason: 'Prompt injection attempt',
   },
 ];
 
 const DANGEROUS_TOPICS = [
-  'suicide', 'self-harm', 'harm others', 'violence', 'abuse children',
-  'illegal drug manufacturing', 'weaponry', 'explosives',
+  'suicide',
+  'self-harm',
+  'harm others',
+  'violence',
+  'abuse children',
+  'illegal drug manufacturing',
+  'weaponry',
+  'explosives',
 ];
 
 export interface ValidationOptions {
@@ -101,7 +111,10 @@ export function validateUserContext(user: any, options: UserContextOptions = {})
   return true;
 }
 
-export function truncateContext(context: string, maxTokens: number = CONFIG.maxContextTokens): string {
+export function truncateContext(
+  context: string,
+  maxTokens: number = CONFIG.maxContextTokens
+): string {
   if (!context) return '';
 
   const maxChars = maxTokens * 4;
@@ -151,10 +164,7 @@ export interface SafetyCheckResult {
  * Deterministic Semantic Guardrail:
  * Validates generated advice against knowledge-graph constraints and high-risk directives.
  */
-export function validateSafety(
-  advice: string, 
-  safetyProfile: SafetyProfile
-): SafetyCheckResult {
+export function validateSafety(advice: string, safetyProfile: SafetyProfile): SafetyCheckResult {
   const issues: string[] = [];
   const lowerAdvice = advice.toLowerCase();
 
@@ -164,7 +174,7 @@ export function validateSafety(
     'override warnings',
     'bypass protocols',
     'disregard contraindications',
-    'ignore previous constraints'
+    'ignore previous constraints',
   ];
 
   for (const rec of DANGEROUS_RECS) {
@@ -178,34 +188,57 @@ export function validateSafety(
     const cLower = constraint.toLowerCase();
 
     // Extract prohibited keywords from constraints like "avoid NSAIDs like ibuprofen" or "contraindicated: ibuprofen"
-    const avoidMatch = cLower.match(/(?:avoid|contraindicated|do not take|prohibited|no)\s+([a-z0-9_\-\s,]+)/i);
+    const avoidMatch = cLower.match(
+      /(?:avoid|contraindicated|do not take|prohibited|no)\s+([a-z0-9_\-\s,]+)/i
+    );
     if (avoidMatch && avoidMatch[1]) {
       const targetEntity = avoidMatch[1].trim();
       const entityTokens = targetEntity
         .split(/[\s,]+/)
-        .map(t => t.trim())
-        .filter(t => t.length > 3 && !['like', 'with', 'such', 'patient', 'disease', 'condition', 'severe'].includes(t));
+        .map((t) => t.trim())
+        .filter(
+          (t) =>
+            t.length > 3 &&
+            !['like', 'with', 'such', 'patient', 'disease', 'condition', 'severe'].includes(t)
+        );
 
       for (const rawToken of entityTokens) {
         const token = escapeRegex(rawToken);
 
         // Pattern A: Active verb before entity: "take ibuprofen", "prescribe ibuprofen", "recommend ibuprofen"
-        const activePattern = new RegExp(`\\b(take|administer|use|prescribe|recommend(?:ed)?|suggest(?:ed)?|give|given)\\s+(?:a\\s+|an\\s+|some\\s+)?(?:dose\\s+of\\s+)?${token}\\b`, 'i');
-        
+        const activePattern = new RegExp(
+          `\\b(take|administer|use|prescribe|recommend(?:ed)?|suggest(?:ed)?|give|given)\\s+(?:a\\s+|an\\s+|some\\s+)?(?:dose\\s+of\\s+)?${token}\\b`,
+          'i'
+        );
+
         // Pattern B: Predicate recommendation: "ibuprofen is recommended", "ibuprofen is suitable", "ibuprofen is effective"
-        const predicatePattern = new RegExp(`\\b${token}\\s+(?:is|are)\\s+(?:recommended|suggested|suitable|effective|indicated|advised|prescribed)\\b`, 'i');
+        const predicatePattern = new RegExp(
+          `\\b${token}\\s+(?:is|are)\\s+(?:recommended|suggested|suitable|effective|indicated|advised|prescribed)\\b`,
+          'i'
+        );
 
         // Pattern C: Noun recommendation: "suggested medication: ibuprofen", "recommended analgesic: ibuprofen"
-        const nounPattern = new RegExp(`\\b(recommendation|suggested|recommended|prescribed)\\s+(?:option|medication|drug|analgesic|treatment)?\\s*[:\\-]?\\s*${token}\\b`, 'i');
+        const nounPattern = new RegExp(
+          `\\b(recommendation|suggested|recommended|prescribed)\\s+(?:option|medication|drug|analgesic|treatment)?\\s*[:\\-]?\\s*${token}\\b`,
+          'i'
+        );
 
         // Negation / safe pattern: "do not take ibuprofen", "avoid ibuprofen", "ibuprofen is contraindicated", "never prescribe ibuprofen"
-        const negationPattern = new RegExp(`(?:\\b(do\\s+not|never|avoid|contraindicated|cannot\\s+recommend|should\\s+not)\\s+(?:take|administer|use|prescribe|recommend(?:ed)?\\s+)?(?:a\\s+|an\\s+)?${token}\\b|\\b${token}\\s+(?:is|are)\\s+(?:contraindicated|not\\s+recommended|strictly\\s+avoided|prohibited)\\b)`, 'i');
+        const negationPattern = new RegExp(
+          `(?:\\b(do\\s+not|never|avoid|contraindicated|cannot\\s+recommend|should\\s+not)\\s+(?:take|administer|use|prescribe|recommend(?:ed)?\\s+)?(?:a\\s+|an\\s+)?${token}\\b|\\b${token}\\s+(?:is|are)\\s+(?:contraindicated|not\\s+recommended|strictly\\s+avoided|prohibited)\\b)`,
+          'i'
+        );
 
-        const isRecommending = activePattern.test(lowerAdvice) || predicatePattern.test(lowerAdvice) || nounPattern.test(lowerAdvice);
+        const isRecommending =
+          activePattern.test(lowerAdvice) ||
+          predicatePattern.test(lowerAdvice) ||
+          nounPattern.test(lowerAdvice);
         const isNegated = negationPattern.test(lowerAdvice);
 
         if (isRecommending && !isNegated) {
-          issues.push(`Advice actively recommends '${rawToken}', which violates constraint: "${constraint}"`);
+          issues.push(
+            `Advice actively recommends '${rawToken}', which violates constraint: "${constraint}"`
+          );
         }
       }
     }
@@ -215,8 +248,14 @@ export function validateSafety(
   if (safetyProfile.prohibitedEntities) {
     for (const entity of safetyProfile.prohibitedEntities) {
       const entLower = escapeRegex(entity.toLowerCase());
-      const positivePattern = new RegExp(`\\b(take|use|administer|prescribe|recommend)\\s+${entLower}\\b`, 'i');
-      const negationPattern = new RegExp(`\\b(do\\s+not|never|avoid|contraindicated)\\s+(?:take|use|administer|prescribe)?\\s*${entLower}\\b`, 'i');
+      const positivePattern = new RegExp(
+        `\\b(take|use|administer|prescribe|recommend)\\s+${entLower}\\b`,
+        'i'
+      );
+      const negationPattern = new RegExp(
+        `\\b(do\\s+not|never|avoid|contraindicated)\\s+(?:take|use|administer|prescribe)?\\s*${entLower}\\b`,
+        'i'
+      );
 
       if (positivePattern.test(lowerAdvice) && !negationPattern.test(lowerAdvice)) {
         issues.push(`Advice promotes restricted entity: '${entity}'`);
@@ -226,7 +265,7 @@ export function validateSafety(
 
   return {
     safe: issues.length === 0,
-    issues
+    issues,
   };
 }
 
@@ -254,14 +293,17 @@ export async function validateSafetyAsync(
         evaluatedBy: 'regex_fallback',
         modelUsed: 'regex-engine',
         issues: syncResult.issues,
-      }
+      },
     };
   }
 
   // 2. Tier 2: System One decision engine semantic check
   if (env.SYSTEM_ONE_ENABLED && safetyProfile.hardConstraints.length > 0) {
     try {
-      const decisionResult = await systemOneService.evaluateSafety(advice, safetyProfile.hardConstraints);
+      const decisionResult = await systemOneService.evaluateSafety(
+        advice,
+        safetyProfile.hardConstraints
+      );
       if (!decisionResult.safe) {
         return {
           safe: false,
@@ -275,7 +317,10 @@ export async function validateSafetyAsync(
         evaluationMetadata: decisionResult,
       };
     } catch (err: any) {
-      logger.warn({ err: err.message }, 'System One evaluation failed / circuit tripped; falling back to regex result');
+      logger.warn(
+        { err: err.message },
+        'System One evaluation failed / circuit tripped; falling back to regex result'
+      );
       return {
         ...syncResult,
         evaluationMetadata: {
@@ -289,7 +334,7 @@ export async function validateSafetyAsync(
           evaluatedBy: 'regex_fallback',
           modelUsed: 'regex-engine',
           issues: syncResult.issues,
-        }
+        },
       };
     }
   }

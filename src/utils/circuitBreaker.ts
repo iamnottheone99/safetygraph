@@ -39,7 +39,7 @@ export class CircuitBreaker {
   private failureCount: number = 0;
   private successCount: number = 0;
   private lastFailureTime: number | null = null;
-  
+
   private failureThreshold: number;
   private successThreshold: number;
   private timeout: number;
@@ -63,9 +63,14 @@ export class CircuitBreaker {
 
   async execute<T>(operation: () => Promise<T>): Promise<T> {
     const state = this.getState();
-    
+
     if (state === CircuitState.OPEN) {
-      throw new AppError(`${this.name} circuit breaker is OPEN`, 503, ERROR_CODES.SERVICE_UNAVAILABLE, true);
+      throw new AppError(
+        `${this.name} circuit breaker is OPEN`,
+        503,
+        ERROR_CODES.SERVICE_UNAVAILABLE,
+        true
+      );
     }
 
     try {
@@ -93,7 +98,7 @@ export class CircuitBreaker {
   onFailure(): void {
     this.failureCount++;
     this.lastFailureTime = Date.now();
-    
+
     if (this.state === CircuitState.HALF_OPEN) {
       this.state = CircuitState.OPEN;
       this.successCount = 0;
@@ -131,7 +136,7 @@ export class CircuitBreakerManager {
   }
 
   getAllStatuses(): CircuitStatus[] {
-    return Array.from(this.breakers.values()).map(b => b.getStatus());
+    return Array.from(this.breakers.values()).map((b) => b.getStatus());
   }
 
   resetAll(): void {

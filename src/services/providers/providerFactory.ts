@@ -20,7 +20,9 @@ export class ProviderFactory {
           if (process.env.ANTHROPIC_API_KEY) {
             return new AnthropicProvider();
           }
-          logger.warn('LLM_PROVIDER is "anthropic" but ANTHROPIC_API_KEY is missing; falling back to mock');
+          logger.warn(
+            'LLM_PROVIDER is "anthropic" but ANTHROPIC_API_KEY is missing; falling back to mock'
+          );
           return new MockProvider();
 
         case 'openai':
@@ -31,7 +33,9 @@ export class ProviderFactory {
               model: process.env.OPENAI_MODEL || 'gpt-4o',
             });
           }
-          logger.warn('LLM_PROVIDER is "openai" but OPENAI_API_KEY is missing; falling back to mock');
+          logger.warn(
+            'LLM_PROVIDER is "openai" but OPENAI_API_KEY is missing; falling back to mock'
+          );
           return new MockProvider();
 
         case 'ollama':
@@ -63,7 +67,9 @@ export class ProviderFactory {
               model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
             });
           }
-          logger.warn('LLM_PROVIDER is "deepseek" but DEEPSEEK_API_KEY is missing; falling back to mock');
+          logger.warn(
+            'LLM_PROVIDER is "deepseek" but DEEPSEEK_API_KEY is missing; falling back to mock'
+          );
           return new MockProvider();
 
         case 'openrouter':
@@ -75,7 +81,9 @@ export class ProviderFactory {
               model: process.env.OPENROUTER_MODEL || 'anthropic/claude-3.5-sonnet',
             });
           }
-          logger.warn('LLM_PROVIDER is "openrouter" but OPENROUTER_API_KEY is missing; falling back to mock');
+          logger.warn(
+            'LLM_PROVIDER is "openrouter" but OPENROUTER_API_KEY is missing; falling back to mock'
+          );
           return new MockProvider();
 
         case 'custom':
@@ -130,7 +138,10 @@ export class ProviderFactory {
         });
       }
     } catch (err: any) {
-      logger.warn({ err: err.message }, 'Failed to initialize requested LLM provider; falling back to mock');
+      logger.warn(
+        { err: err.message },
+        'Failed to initialize requested LLM provider; falling back to mock'
+      );
     }
 
     return new MockProvider();

@@ -25,11 +25,14 @@ export class OpenAICompatibleProvider implements ILLMProvider {
       baseURL: config.baseURL,
     });
 
-    logger.info({
-      provider: this.name,
-      model: this.model,
-      baseURL: config.baseURL || 'https://api.openai.com/v1'
-    }, 'OpenAI-compatible provider initialized');
+    logger.info(
+      {
+        provider: this.name,
+        model: this.model,
+        baseURL: config.baseURL || 'https://api.openai.com/v1',
+      },
+      'OpenAI-compatible provider initialized'
+    );
   }
 
   async generate(options: LLMGenerateOptions): Promise<string> {
@@ -37,7 +40,7 @@ export class OpenAICompatibleProvider implements ILLMProvider {
       model: this.model,
       messages: [
         { role: 'system', content: options.systemPrompt },
-        { role: 'user', content: options.query }
+        { role: 'user', content: options.query },
       ],
       max_tokens: options.maxTokens || 1024,
       temperature: options.temperature ?? 0.2,
@@ -51,7 +54,7 @@ export class OpenAICompatibleProvider implements ILLMProvider {
       model: this.model,
       messages: [
         { role: 'system', content: options.systemPrompt },
-        { role: 'user', content: options.query }
+        { role: 'user', content: options.query },
       ],
       max_tokens: options.maxTokens || 1024,
       temperature: options.temperature ?? 0.2,
