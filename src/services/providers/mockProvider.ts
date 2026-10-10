@@ -16,7 +16,7 @@ export class MockProvider implements ILLMProvider {
     const vectorDocs = options.vectorDocs || [];
 
     if (constraints.length > 0) {
-      const constraintList = constraints.map(c => `• ${c}`).join('\n');
+      const constraintList = constraints.map((c) => `• ${c}`).join('\n');
       return `Based on verified safety constraints, the requested action cannot be recommended:\n${constraintList}\n\nPlease follow domain-specific guidelines or consult a specialist.`;
     }
 
@@ -32,7 +32,7 @@ export class MockProvider implements ILLMProvider {
     const words = fullResponse.split(' ');
     for (const word of words) {
       onChunk(word + ' ');
-      await new Promise(resolve => setTimeout(resolve, 20));
+      await new Promise((resolve) => setTimeout(resolve, 20));
     }
   }
 }

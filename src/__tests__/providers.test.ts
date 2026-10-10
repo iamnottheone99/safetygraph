@@ -1,7 +1,6 @@
 import { MockProvider } from '../services/providers/mockProvider';
 import { ProviderFactory } from '../services/providers/providerFactory';
 import { OpenAICompatibleProvider } from '../services/providers/openAICompatibleProvider';
-import { AnthropicProvider } from '../services/providers/anthropicProvider';
 import { AIService } from '../services/aiService';
 
 describe('LLM Providers Architecture', () => {

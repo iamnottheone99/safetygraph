@@ -17,7 +17,10 @@ export interface RagRequest {
 }
 
 export class AIService {
-  private llmBreaker = circuitManager.getBreaker('llm-provider', { failureThreshold: 3, timeout: 20000 });
+  private llmBreaker = circuitManager.getBreaker('llm-provider', {
+    failureThreshold: 3,
+    timeout: 20000,
+  });
   private provider: ILLMProvider;
 
   constructor(customProvider?: ILLMProvider) {
@@ -30,42 +33,51 @@ export class AIService {
    */
   setProvider(provider: ILLMProvider): void {
     this.provider = provider;
-    logger.info({ provider: this.provider.name, model: this.provider.model }, 'Switched active LLM provider');
+    logger.info(
+      { provider: this.provider.name, model: this.provider.model },
+      'Switched active LLM provider'
+    );
   }
 
   getProviderInfo(): { name: string; model: string } {
     return {
       name: this.provider.name,
-      model: this.provider.model
+      model: this.provider.model,
     };
   }
 
   /**
    * Build the structured system prompt integrating vector search and graph constraints
    */
-  private buildSystemPrompt(constraints: string[], vectorDocs: Array<{ id: string; content: string }>): string {
+  private buildSystemPrompt(
+    constraints: string[],
+    vectorDocs: Array<{ id: string; content: string }>
+  ): string {
     return [
       'You are SafetyGraph Verified Assistant, an enterprise AI with deterministic safety constraints.',
       'You must strictly adhere to the following hard constraints retrieved from the Knowledge Graph:',
-      constraints.length > 0 
+      constraints.length > 0
         ? constraints.map((c, i) => `  ${i + 1}. [MANDATORY CONSTRAINT] ${c}`).join('\n')
         : '  (No specific hard constraints active for this query)',
       '',
       'Semantic context retrieved from Vector Search:',
-      vectorDocs.length > 0 
-        ? vectorDocs.map(d => `- ${truncateContext(d.content, 500)}`).join('\n')
+      vectorDocs.length > 0
+        ? vectorDocs.map((d) => `- ${truncateContext(d.content, 500)}`).join('\n')
         : '  (No vector context retrieved)',
       '',
-      'Never advise or suggest any action that violates the mandatory constraints.'
+      'Never advise or suggest any action that violates the mandatory constraints.',
     ].join('\n');
   }
 
   async generateResponse(request: RagRequest): Promise<string> {
-    logger.info({
-      query: request.query,
-      provider: this.provider.name,
-      model: this.provider.model
-    }, 'Generating response');
+    logger.info(
+      {
+        query: request.query,
+        provider: this.provider.name,
+        model: this.provider.model,
+      },
+      'Generating response'
+    );
 
     return this.llmBreaker.execute(async () => {
       const constraints = request.contextData?.constraints || [];
@@ -76,29 +88,35 @@ export class AIService {
         query: request.query,
         systemPrompt,
         constraints,
-        vectorDocs
+        vectorDocs,
       });
     });
   }
 
   async streamResponse(request: RagRequest, onChunk: (chunk: string) => void): Promise<void> {
-    logger.info({
-      query: request.query,
-      provider: this.provider.name,
-      model: this.provider.model
-    }, 'Streaming response');
+    logger.info(
+      {
+        query: request.query,
+        provider: this.provider.name,
+        model: this.provider.model,
+      },
+      'Streaming response'
+    );
 
     await this.llmBreaker.execute(async () => {
       const constraints = request.contextData?.constraints || [];
       const vectorDocs = request.contextData?.vectorContext || [];
       const systemPrompt = this.buildSystemPrompt(constraints, vectorDocs);
 
-      await this.provider.stream({
-        query: request.query,
-        systemPrompt,
-        constraints,
-        vectorDocs
-      }, onChunk);
+      await this.provider.stream(
+        {
+          query: request.query,
+          systemPrompt,
+          constraints,
+          vectorDocs,
+        },
+        onChunk
+      );
     });
   }
 }

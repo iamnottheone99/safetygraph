@@ -62,7 +62,7 @@ describe('Phase 2: Cache & Config Verification', () => {
     test('should reject invalid PORT values', () => {
       expect(() => {
         validateEnv({
-          PORT: 'not-a-number'
+          PORT: 'not-a-number',
         });
       }).toThrow();
     });

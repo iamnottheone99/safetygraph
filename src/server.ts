@@ -15,15 +15,17 @@ export async function startServer() {
   const [pgConnected, neo4jConnected, redisConnected] = await Promise.all([
     vectorService.initSchema(),
     graphContextService.verifyConnectivity(),
-    cacheService.init()
+    cacheService.init(),
   ]);
 
-  logger.info({
-    postgres: pgConnected ? 'CONNECTED (pgvector active)' : 'OFFLINE (in-memory fallback active)',
-    neo4j: neo4jConnected ? 'CONNECTED' : 'OFFLINE (in-memory fallback active)',
-    redis: redisConnected ? 'CONNECTED' : 'OFFLINE (in-memory cache active)'
-  }, 'Database and cache subsystem statuses');
-
+  logger.info(
+    {
+      postgres: pgConnected ? 'CONNECTED (pgvector active)' : 'OFFLINE (in-memory fallback active)',
+      neo4j: neo4jConnected ? 'CONNECTED' : 'OFFLINE (in-memory fallback active)',
+      redis: redisConnected ? 'CONNECTED' : 'OFFLINE (in-memory cache active)',
+    },
+    'Database and cache subsystem statuses'
+  );
 
   const app = buildApp();
   const address = await app.listen({ port: PORT, host: '0.0.0.0' });

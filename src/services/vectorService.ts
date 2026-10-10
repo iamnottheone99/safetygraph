@@ -15,13 +15,19 @@ export interface VectorDocument {
 
 export class VectorService {
   private pool: Pool | null = null;
-  private dbBreaker = circuitManager.getBreaker('postgres', { failureThreshold: 3, timeout: 15000 });
+  private dbBreaker = circuitManager.getBreaker('postgres', {
+    failureThreshold: 3,
+    timeout: 15000,
+  });
   private isConnected = false;
   private openaiClient: OpenAI | null = null;
   public readonly dimensions = 1536;
-  
+
   // In-memory fallback documents for offline testing and development when PostgreSQL is not running
-  private fallbackStore: Map<string, { content: string; metadata?: Record<string, any>; embedding?: number[] }> = new Map();
+  private fallbackStore: Map<
+    string,
+    { content: string; metadata?: Record<string, any>; embedding?: number[] }
+  > = new Map();
 
   constructor() {
     this.seedFallbackStore();
@@ -32,14 +38,16 @@ export class VectorService {
     const initialDocs = [
       {
         id: 'doc_med_01',
-        content: 'NSAIDs (Nonsteroidal Anti-inflammatory Drugs) such as Ibuprofen and Aspirin can trigger bronchospasm in patients with Aspirin-Exacerbated Respiratory Disease (AERD) or severe asthma.',
-        metadata: { category: 'pharmacology', topic: 'respiratory' }
+        content:
+          'NSAIDs (Nonsteroidal Anti-inflammatory Drugs) such as Ibuprofen and Aspirin can trigger bronchospasm in patients with Aspirin-Exacerbated Respiratory Disease (AERD) or severe asthma.',
+        metadata: { category: 'pharmacology', topic: 'respiratory' },
       },
       {
         id: 'doc_med_02',
-        content: 'Acetaminophen (Paracetamol) is generally considered a safer alternative analgesic and antipyretic for patients diagnosed with reactive airway diseases.',
-        metadata: { category: 'pharmacology', topic: 'analgesics' }
-      }
+        content:
+          'Acetaminophen (Paracetamol) is generally considered a safer alternative analgesic and antipyretic for patients diagnosed with reactive airway diseases.',
+        metadata: { category: 'pharmacology', topic: 'analgesics' },
+      },
     ];
 
     for (const doc of initialDocs) {
@@ -47,27 +55,31 @@ export class VectorService {
       this.fallbackStore.set(doc.id, {
         content: doc.content,
         metadata: doc.metadata,
-        embedding
+        embedding,
       });
     }
   }
 
   private initPool(): void {
-    const connectionString = process.env.DATABASE_URL || 
+    const connectionString =
+      process.env.DATABASE_URL ||
       `postgresql://${process.env.POSTGRES_USER || 'postgres'}:${process.env.POSTGRES_PASSWORD || 'password'}@${process.env.POSTGRES_HOST || 'localhost'}:${process.env.POSTGRES_PORT || '5432'}/${process.env.POSTGRES_DB || 'safetygraph'}`;
 
     try {
       this.pool = new Pool({
         connectionString,
-        connectionTimeoutMillis: 2000,
+        connectionTimeoutMillis: process.env.NODE_ENV === 'test' ? 500 : 2000,
         idleTimeoutMillis: 10000,
       });
 
       this.pool.on('error', (err) => {
-        logger.warn({ err: err.message }, 'Postgres pool idle client error; switching to resilient fallback');
+        logger.warn(
+          { err: err.message },
+          'Postgres pool idle client error; switching to resilient fallback'
+        );
         this.isConnected = false;
       });
-    } catch (error) {
+    } catch (_error) {
       logger.warn('Postgres connection pool initialization deferred; operating in fallback mode');
       this.isConnected = false;
     }
@@ -129,7 +141,10 @@ export class VectorService {
           return response.data[0].embedding;
         }
       } catch (err: any) {
-        logger.warn({ err: err.message }, 'OpenAI embedding generation failed; using deterministic fallback');
+        logger.warn(
+          { err: err.message },
+          'OpenAI embedding generation failed; using deterministic fallback'
+        );
       }
     }
 
@@ -161,7 +176,7 @@ export class VectorService {
             CREATE INDEX IF NOT EXISTS document_embeddings_vector_cosine_idx 
             ON document_embeddings USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
           `);
-        } catch (indexErr) {
+        } catch (_indexErr) {
           // IVFFlat requires existing rows or can be added later; ignore if table is empty
         }
 
@@ -169,7 +184,10 @@ export class VectorService {
         logger.info('PostgreSQL pgvector extension and document schema verified');
         return true;
       } catch (err: any) {
-        logger.warn({ err: err.message }, 'PostgreSQL pgvector unavailable; running with resilient fallback');
+        logger.warn(
+          { err: err.message },
+          'PostgreSQL pgvector unavailable; running with resilient fallback'
+        );
         this.isConnected = false;
         return false;
       } finally {
@@ -185,12 +203,16 @@ export class VectorService {
   /**
    * Semantic vector search query using pgvector cosine distance with fallback for offline environments
    */
-  async searchSimilar(queryText: string, topK: number = 3, queryEmbedding?: number[]): Promise<VectorDocument[]> {
+  async searchSimilar(
+    queryText: string,
+    topK: number = 3,
+    queryEmbedding?: number[]
+  ): Promise<VectorDocument[]> {
     if (!queryText || queryText.trim().length === 0) {
       return [];
     }
 
-    const embedding = queryEmbedding || await this.generateEmbedding(queryText);
+    const embedding = queryEmbedding || (await this.generateEmbedding(queryText));
     const vectorStr = `[${embedding.join(',')}]`;
 
     if (this.pool && this.isConnected) {
@@ -210,11 +232,11 @@ export class VectorService {
             );
 
             if (result.rows.length > 0) {
-              return result.rows.map(row => ({
+              return result.rows.map((row) => ({
                 id: row.id,
                 content: row.content,
                 metadata: row.metadata,
-                similarity: parseFloat(row.similarity)
+                similarity: parseFloat(row.similarity),
               }));
             }
 
@@ -225,11 +247,11 @@ export class VectorService {
                LIMIT $2`,
               [queryText, topK]
             );
-            return ftsResult.rows.map(row => ({
+            return ftsResult.rows.map((row) => ({
               id: row.id,
               content: row.content,
               metadata: row.metadata,
-              similarity: 0.9
+              similarity: 0.9,
             }));
           } finally {
             client.release();
@@ -254,7 +276,10 @@ export class VectorService {
       }
 
       // Keyword token fallback bonus
-      const queryTokens = queryText.toLowerCase().split(/\s+/).filter(t => t.length > 2);
+      const queryTokens = queryText
+        .toLowerCase()
+        .split(/\s+/)
+        .filter((t) => t.length > 2);
       const docLower = doc.content.toLowerCase();
       let matchCount = 0;
       for (const token of queryTokens) {
@@ -280,8 +305,13 @@ export class VectorService {
   /**
    * Upsert a document into vector storage
    */
-  async upsertDocument(id: string, content: string, embedding?: number[], metadata?: Record<string, any>): Promise<void> {
-    const docEmbedding = embedding || await this.generateEmbedding(content);
+  async upsertDocument(
+    id: string,
+    content: string,
+    embedding?: number[],
+    metadata?: Record<string, any>
+  ): Promise<void> {
+    const docEmbedding = embedding || (await this.generateEmbedding(content));
     this.fallbackStore.set(id, { content, metadata, embedding: docEmbedding });
 
     if (this.pool && this.isConnected) {
@@ -304,7 +334,10 @@ export class VectorService {
           }
         });
       } catch (err: any) {
-        logger.warn({ err: err.message }, 'Failed to persist document to postgres; cached in fallback store');
+        logger.warn(
+          { err: err.message },
+          'Failed to persist document to postgres; cached in fallback store'
+        );
       }
     }
   }

@@ -65,11 +65,14 @@ const constraintSchema = {
   },
 };
 
-export default async function ragRoutes(fastify: FastifyInstance, opts: FastifyPluginOptions): Promise<void> {
+export default async function ragRoutes(
+  fastify: FastifyInstance,
+  _opts: FastifyPluginOptions
+): Promise<void> {
   /**
    * Health & Circuit Status Endpoint
    */
-  fastify.get('/circuits', async (request: FastifyRequest, reply: FastifyReply) => {
+  fastify.get('/circuits', async (_request: FastifyRequest, _reply: FastifyReply) => {
     return {
       circuits: circuitManager.getAllStatuses(),
     };
@@ -116,7 +119,10 @@ export default async function ragRoutes(fastify: FastifyInstance, opts: FastifyP
     const safetyCheck = await validateSafetyAsync(sanitized, { hardConstraints: constraints });
 
     if (!safetyCheck.safe) {
-      request.log.warn({ issues: safetyCheck.issues }, 'Generated output failed safety constraints');
+      request.log.warn(
+        { issues: safetyCheck.issues },
+        'Generated output failed safety constraints'
+      );
       return reply.status(403).send({
         error: 'E_GUARDRAIL',
         message: 'The generated response violated hard safety constraints.',
@@ -217,33 +223,41 @@ export default async function ragRoutes(fastify: FastifyInstance, opts: FastifyP
   /**
    * Document Ingestion Endpoint for Vector Database
    */
-  fastify.post<{ Body: DocumentBody }>('/documents', { schema: documentSchema }, async (request, reply) => {
-    const { id, content, metadata, embedding } = request.body;
-    validateInput(content);
+  fastify.post<{ Body: DocumentBody }>(
+    '/documents',
+    { schema: documentSchema },
+    async (request, reply) => {
+      const { id, content, metadata, embedding } = request.body;
+      validateInput(content);
 
-    await vectorService.upsertDocument(id, content, embedding, metadata);
+      await vectorService.upsertDocument(id, content, embedding, metadata);
 
-    return reply.status(201).send({
-      status: 'ok',
-      message: `Document '${id}' successfully indexed into vector store.`,
-      id,
-    });
-  });
+      return reply.status(201).send({
+        status: 'ok',
+        message: `Document '${id}' successfully indexed into vector store.`,
+        id,
+      });
+    }
+  );
 
   /**
    * Knowledge Graph Constraint Ingestion Endpoint
    */
-  fastify.post<{ Body: ConstraintBody }>('/constraints', { schema: constraintSchema }, async (request, reply) => {
-    const { entity, constraint } = request.body;
-    validateInput(constraint);
+  fastify.post<{ Body: ConstraintBody }>(
+    '/constraints',
+    { schema: constraintSchema },
+    async (request, reply) => {
+      const { entity, constraint } = request.body;
+      validateInput(constraint);
 
-    graphContextService.registerConstraint(entity, constraint);
+      graphContextService.registerConstraint(entity, constraint);
 
-    return reply.status(201).send({
-      status: 'ok',
-      message: `Constraint for entity '${entity}' successfully registered.`,
-      entity,
-      constraint,
-    });
-  });
+      return reply.status(201).send({
+        status: 'ok',
+        message: `Constraint for entity '${entity}' successfully registered.`,
+        entity,
+        constraint,
+      });
+    }
+  );
 }
