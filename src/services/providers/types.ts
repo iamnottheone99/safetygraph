@@ -5,6 +5,7 @@ export interface LLMGenerateOptions {
   temperature?: number;
   constraints?: string[];
   vectorDocs?: Array<{ id: string; content: string; similarity?: number }>;
+  abortSignal?: AbortSignal;
 }
 
 export interface ILLMProvider {

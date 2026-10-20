@@ -14,6 +14,7 @@ export interface RagContextData {
 export interface RagRequest {
   query: string;
   contextData?: RagContextData;
+  abortSignal?: AbortSignal;
 }
 
 export class AIService {
@@ -89,6 +90,7 @@ export class AIService {
         systemPrompt,
         constraints,
         vectorDocs,
+        abortSignal: request.abortSignal,
       });
     });
   }
@@ -114,6 +116,7 @@ export class AIService {
           systemPrompt,
           constraints,
           vectorDocs,
+          abortSignal: request.abortSignal,
         },
         onChunk
       );

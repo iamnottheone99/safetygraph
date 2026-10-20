@@ -87,9 +87,10 @@ export default async function ragRoutes(
     // 1. Input Guardrails Check
     validateInput(query);
 
-    // Check cache for identical query + entity payload
+    // Check cache for identical query + entity payload + provider/model
+    const providerInfo = aiService.getProviderInfo();
     const sortedEntities = [...entities].sort().join(',');
-    const cacheKey = `rag:query:${Buffer.from(query.trim().toLowerCase() + '::' + sortedEntities).toString('base64url')}`;
+    const cacheKey = `rag:query:${Buffer.from(`${providerInfo.name}:${providerInfo.model}::${query.trim().toLowerCase()}::${sortedEntities}`).toString('base64url')}`;
     const cached = await cacheService.get<any>(cacheKey);
     if (cached) {
       request.log.info({ cacheKey }, 'Serving cached verified RAG response');
@@ -168,6 +169,14 @@ export default async function ragRoutes(
     reply.raw.setHeader('Cache-Control', 'no-cache');
     reply.raw.setHeader('Connection', 'keep-alive');
 
+    // Abort controller to terminate LLM generation if client disconnects
+    const abortController = new AbortController();
+    request.raw.on('close', () => {
+      if (!reply.raw.writableEnded) {
+        abortController.abort();
+      }
+    });
+
     // Send initial retrieval metadata event
     reply.raw.write(
       `event: metadata\ndata: ${JSON.stringify({
@@ -183,12 +192,20 @@ export default async function ragRoutes(
       {
         query,
         contextData: { constraints, vectorContext },
+        abortSignal: abortController.signal,
       },
       (chunk: string) => {
+        if (abortController.signal.aborted || reply.raw.destroyed || reply.raw.writableEnded) {
+          return;
+        }
         synthesizedResponse += chunk;
         reply.raw.write(`event: chunk\ndata: ${JSON.stringify({ chunk })}\n\n`);
       }
     );
+
+    if (abortController.signal.aborted || reply.raw.destroyed || reply.raw.writableEnded) {
+      return reply.raw.end();
+    }
 
     // 4. Output Sanitization & Semantic Guardrail Verification
     const sanitized = sanitizeOutput(synthesizedResponse);
@@ -250,7 +267,7 @@ export default async function ragRoutes(
       const { entity, constraint } = request.body;
       validateInput(constraint);
 
-      graphContextService.registerConstraint(entity, constraint);
+      await graphContextService.registerConstraint(entity, constraint);
 
       return reply.status(201).send({
         status: 'ok',

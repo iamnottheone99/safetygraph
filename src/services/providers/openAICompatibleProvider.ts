@@ -36,32 +36,41 @@ export class OpenAICompatibleProvider implements ILLMProvider {
   }
 
   async generate(options: LLMGenerateOptions): Promise<string> {
-    const response = await this.client.chat.completions.create({
-      model: this.model,
-      messages: [
-        { role: 'system', content: options.systemPrompt },
-        { role: 'user', content: options.query },
-      ],
-      max_tokens: options.maxTokens || 1024,
-      temperature: options.temperature ?? 0.2,
-    });
+    const response = await this.client.chat.completions.create(
+      {
+        model: this.model,
+        messages: [
+          { role: 'system', content: options.systemPrompt },
+          { role: 'user', content: options.query },
+        ],
+        max_tokens: options.maxTokens || 1024,
+        temperature: options.temperature ?? 0.2,
+      },
+      options.abortSignal ? { signal: options.abortSignal } : undefined
+    );
 
     return response.choices[0]?.message?.content || '';
   }
 
   async stream(options: LLMGenerateOptions, onChunk: (chunk: string) => void): Promise<void> {
-    const stream = await this.client.chat.completions.create({
-      model: this.model,
-      messages: [
-        { role: 'system', content: options.systemPrompt },
-        { role: 'user', content: options.query },
-      ],
-      max_tokens: options.maxTokens || 1024,
-      temperature: options.temperature ?? 0.2,
-      stream: true,
-    });
+    const stream = await this.client.chat.completions.create(
+      {
+        model: this.model,
+        messages: [
+          { role: 'system', content: options.systemPrompt },
+          { role: 'user', content: options.query },
+        ],
+        max_tokens: options.maxTokens || 1024,
+        temperature: options.temperature ?? 0.2,
+        stream: true,
+      },
+      options.abortSignal ? { signal: options.abortSignal } : undefined
+    );
 
     for await (const chunk of stream) {
+      if (options.abortSignal?.aborted) {
+        break;
+      }
       const content = chunk.choices[0]?.delta?.content;
       if (content) {
         onChunk(content);

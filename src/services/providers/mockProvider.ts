@@ -31,6 +31,9 @@ export class MockProvider implements ILLMProvider {
     const fullResponse = await this.generate(options);
     const words = fullResponse.split(' ');
     for (const word of words) {
+      if (options.abortSignal?.aborted) {
+        break;
+      }
       onChunk(word + ' ');
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
