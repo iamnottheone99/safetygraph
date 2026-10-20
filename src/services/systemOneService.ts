@@ -190,6 +190,3 @@ export class SystemOneService {
 }
 
 export const systemOneService = new SystemOneService();
-
-// Aliases for seamless backward compatibility
-export { systemOneService as kevService, type SystemOneSafetyEvaluation as KevSafetyEvaluation };
