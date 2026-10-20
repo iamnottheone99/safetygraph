@@ -10,9 +10,9 @@ import pino from 'pino';
 const logger = pino();
 
 export const CONFIG = {
-  maxInputLength: parseInt(process.env.GUARDRAIL_MAX_INPUT || '10000', 10),
-  maxOutputLength: parseInt(process.env.GUARDRAIL_MAX_OUTPUT || '50000', 10),
-  maxContextTokens: parseInt(process.env.GUARDRAIL_MAX_CONTEXT_TOKENS || '4000', 10),
+  maxInputLength: env.GUARDRAIL_MAX_INPUT,
+  maxOutputLength: env.GUARDRAIL_MAX_OUTPUT,
+  maxContextTokens: env.GUARDRAIL_MAX_CONTEXT_TOKENS,
 };
 
 export function escapeRegex(str: string): string {
@@ -43,15 +43,11 @@ const DANGEROUS_TOPICS = [
   'explosives',
 ];
 
-export interface ValidationOptions {
-  skipHtml?: boolean;
-}
-
 function createError(code: string, message: string, retry: boolean = false) {
   return new AppError(message, 400, code, retry);
 }
 
-export function validateInput(text: any, options: ValidationOptions = {}): boolean {
+export function validateInput(text: any): boolean {
   if (!text) {
     throw createError('E_VALIDATION', 'Input is required');
   }
@@ -80,32 +76,6 @@ export function validateInput(text: any, options: ValidationOptions = {}): boole
       logger.warn({ topic }, 'Blocked dangerous topic');
       throw createError('E_GUARDRAIL', `Topic not allowed: ${topic}`, false);
     }
-  }
-
-  if (options.skipHtml) {
-    const htmlPattern = /<script[\s>]|javascript:|on\w+=/i;
-    if (htmlPattern.test(input)) {
-      throw createError('E_VALIDATION', 'HTML/scripts not allowed');
-    }
-  }
-
-  return true;
-}
-
-export interface UserContextOptions {
-  skipAuth?: boolean;
-  checkQuota?: boolean;
-}
-
-export function validateUserContext(user: any, options: UserContextOptions = {}): boolean {
-  if (!options.skipAuth) {
-    if (!user || !user.id) {
-      throw new AppError('Authentication required', 401, 'E_UNAUTHORIZED', false);
-    }
-  }
-
-  if (options.checkQuota && user?.quota && user.quota.remaining <= 0) {
-    throw new AppError('Quota exceeded', 429, 'E_RATE_LIMITED', true);
   }
 
   return true;

@@ -79,6 +79,3 @@ export function buildApp(opts: FastifyServerOptions = {}): FastifyInstance {
 
   return app;
 }
-
-export const app = buildApp();
-export default app;

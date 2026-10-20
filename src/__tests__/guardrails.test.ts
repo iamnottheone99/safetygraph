@@ -3,7 +3,6 @@ import {
   sanitizeOutput,
   validateSafety,
   truncateContext,
-  validateUserContext,
 } from '../services/guardrails';
 
 describe('Guardrails Service', () => {
@@ -117,26 +116,6 @@ describe('Guardrails Service', () => {
       const result = validateSafety(adversarialAdvice, safetyProfile);
       expect(result.safe).toBe(false);
       expect(result.issues[0]).toContain('high-risk directive');
-    });
-  });
-
-  describe('validateUserContext', () => {
-    test('should pass valid user', () => {
-      expect(validateUserContext({ id: 'user_1' })).toBe(true);
-    });
-
-    test('should reject missing user when auth is required', () => {
-      expect(() => validateUserContext(null)).toThrow('Authentication required');
-    });
-
-    test('should pass when skipAuth is true', () => {
-      expect(validateUserContext(null, { skipAuth: true })).toBe(true);
-    });
-
-    test('should reject when quota is exceeded', () => {
-      expect(() =>
-        validateUserContext({ id: 'u1', quota: { remaining: 0 } }, { checkQuota: true })
-      ).toThrow('Quota exceeded');
     });
   });
 

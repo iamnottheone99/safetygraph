@@ -29,10 +29,23 @@ export class CacheService {
       this.client = createClient({
         url: redisUrl,
         socket: {
-          reconnectStrategy: false,
+          reconnectStrategy:
+            process.env.NODE_ENV === 'test'
+              ? false
+              : (retries: number) => {
+                  if (retries > 10) {
+                    return new Error('Redis max reconnect attempts reached');
+                  }
+                  return Math.min(retries * 50, 1000);
+                },
           connectTimeout: 1000,
         },
       }) as RedisClientType;
+
+      this.client.on('ready', () => {
+        logger.info('Redis connection ready');
+        this.isConnected = true;
+      });
 
       this.client.on('error', (err) => {
         logger.debug({ err: err.message }, 'Redis client socket error; using in-memory cache');

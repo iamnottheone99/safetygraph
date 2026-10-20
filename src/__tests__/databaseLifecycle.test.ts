@@ -1,10 +1,17 @@
 import { VectorService } from '../services/vectorService';
 import { GraphContextService } from '../services/graphContextService';
-import app from '../app';
+import { buildApp } from '../app';
+import { FastifyInstance } from 'fastify';
 
 describe('Phase 1: Database & Lifecycle Verification', () => {
+  let app: FastifyInstance;
   let vectorService: VectorService;
   let graphContextService: GraphContextService;
+
+  beforeAll(async () => {
+    app = buildApp();
+    await app.ready();
+  });
 
   beforeEach(() => {
     vectorService = new VectorService();
@@ -76,7 +83,10 @@ describe('Phase 1: Database & Lifecycle Verification', () => {
     });
 
     test('should retrieve registered constraints from fallback store', async () => {
-      graphContextService.registerConstraint('test_drug', 'Contraindicated in cardiac failure');
+      await graphContextService.registerConstraint(
+        'test_drug',
+        'Contraindicated in cardiac failure'
+      );
       const constraints = await graphContextService.getHardConstraints(['test_drug']);
       expect(constraints).toContain('Contraindicated in cardiac failure');
     });
