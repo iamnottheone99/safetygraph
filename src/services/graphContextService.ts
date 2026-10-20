@@ -65,38 +65,68 @@ export class GraphContextService {
   }
 
   /**
-   * Register an in-memory constraint for testing or fallback operation
+   * Register a constraint into Neo4j (if connected) and local in-memory fallback store
    */
-  registerConstraint(entity: string, constraint: string): void {
+  async registerConstraint(entity: string, constraint: string): Promise<void> {
     const key = entity.toLowerCase();
     const existing = this.fallbackConstraints.get(key) || [];
     if (!existing.includes(constraint)) {
       existing.push(constraint);
       this.fallbackConstraints.set(key, existing);
     }
+
+    if (this.driver && this.isConnected) {
+      try {
+        await this.dbBreaker.execute(async () => {
+          const session = this.driver!.session();
+          try {
+            await session.run(
+              `
+              MERGE (e:Entity { name: $entity })
+              MERGE (c:Constraint { name: $constraint })
+              MERGE (e)-[:HAS_CONSTRAINT]->(c)
+            `,
+              { entity: key, constraint }
+            );
+          } finally {
+            await session.close();
+          }
+        });
+      } catch (err: any) {
+        logger.warn(
+          { err: err.message },
+          'Failed to persist constraint to Neo4j; stored in fallback store'
+        );
+      }
+    }
   }
 
   /**
-   * Retrieves hard constraints for specified entities from Neo4j or fallback store
+   * Retrieves hard constraints for specified entities from Neo4j and fallback store
    */
   async getHardConstraints(entities: string[]): Promise<string[]> {
     if (!entities || entities.length === 0) return [];
 
+    const matchedConstraints: string[] = [];
+
     if (this.driver && this.isConnected) {
       try {
-        return await this.dbBreaker.execute(async () => {
+        await this.dbBreaker.execute(async () => {
           const session = this.driver!.session();
           try {
+            const normalized = entities.map((e) => e.toLowerCase());
             const result = await session.run(
               `
               MATCH (e:Entity)-[:HAS_CONSTRAINT]->(c:Constraint)
-              WHERE e.name IN $entities
+              WHERE toLower(e.name) IN $entities
               RETURN DISTINCT c.name as constraintName
             `,
-              { entities }
+              { entities: normalized }
             );
 
-            return result.records.map((record) => record.get('constraintName'));
+            for (const record of result.records) {
+              matchedConstraints.push(record.get('constraintName'));
+            }
           } finally {
             await session.close();
           }
@@ -109,8 +139,7 @@ export class GraphContextService {
       }
     }
 
-    // Resilient fallback constraint lookup
-    const matchedConstraints: string[] = [];
+    // In-memory fallback lookup (complements or serves as fallback)
     for (const entity of entities) {
       const key = entity.toLowerCase();
       if (this.fallbackConstraints.has(key)) {

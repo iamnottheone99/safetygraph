@@ -1,5 +1,8 @@
 import { buildApp } from '../app';
 import { FastifyInstance } from 'fastify';
+import { aiService } from '../services/aiService';
+import { graphContextService } from '../services/graphContextService';
+import { MockProvider } from '../services/providers/mockProvider';
 
 describe('RAG API Routes Integration', () => {
   let app: FastifyInstance;
@@ -94,6 +97,26 @@ describe('RAG API Routes Integration', () => {
       const cachedBody = cachedRes.json();
       expect(cachedBody.cached).toBe(true);
       expect(cachedBody.response).toBe(body.response);
+
+      // Changing provider model should differentiate cache
+      aiService.setProvider({
+        name: 'mock',
+        model: 'different-model-v2',
+        generate: async () => 'Different model output',
+        stream: async () => {},
+      });
+
+      const diffModelRes = await app.inject({
+        method: 'POST',
+        url: '/api/v1/rag/query',
+        payload: queryPayload,
+      });
+
+      expect(diffModelRes.statusCode).toBe(200);
+      expect(diffModelRes.json().cached).toBe(false);
+
+      // Restore mock provider
+      aiService.setProvider(new MockProvider());
     });
   });
 
@@ -120,11 +143,14 @@ describe('RAG API Routes Integration', () => {
       });
 
       expect(res.statusCode).toBe(200);
-      expect(res.headers['content-type']).toContain('text/event-stream');
-      expect(res.body).toContain('event: metadata');
-      expect(res.body).toContain('event: chunk');
-      expect(res.body).toContain('event: done');
-      expect(res.body).toContain('"safe":true');
+      expect(res.headers['content-type']).toBe('text/event-stream');
+      const body = res.body;
+
+      // Assert event structure
+      expect(body).toContain('event: metadata');
+      expect(body).toContain('event: chunk');
+      expect(body).toContain('event: done');
+      expect(body).toContain('"safe":true');
     });
   });
 
@@ -133,7 +159,7 @@ describe('RAG API Routes Integration', () => {
       const res = await app.inject({
         method: 'POST',
         url: '/api/v1/rag/documents',
-        payload: { id: '' },
+        payload: { id: 'invalid_doc' },
       });
       expect(res.statusCode).toBe(400);
     });
@@ -143,16 +169,16 @@ describe('RAG API Routes Integration', () => {
         method: 'POST',
         url: '/api/v1/rag/documents',
         payload: {
-          id: 'doc_ingest_test_01',
-          content: 'Beta-blockers can cause bronchospasm in susceptible asthmatic patients.',
-          metadata: { category: 'cardiology' },
+          id: 'doc_integration_test',
+          content: 'Clinical trial shows efficacy of salbutamol in acute bronchospasm.',
+          metadata: { topic: 'respiratory', phase: 3 },
         },
       });
 
       expect(res.statusCode).toBe(201);
       const body = res.json();
       expect(body.status).toBe('ok');
-      expect(body.id).toBe('doc_ingest_test_01');
+      expect(body.id).toBe('doc_integration_test');
     });
   });
 
@@ -180,6 +206,9 @@ describe('RAG API Routes Integration', () => {
       const body = res.json();
       expect(body.status).toBe('ok');
       expect(body.entity).toBe('propranolol');
+
+      const constraints = await graphContextService.getHardConstraints(['propranolol']);
+      expect(constraints).toContain('Contraindicated in bronchial asthma');
     });
   });
 });

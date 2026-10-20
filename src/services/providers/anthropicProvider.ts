@@ -20,13 +20,16 @@ export class AnthropicProvider implements ILLMProvider {
   }
 
   async generate(options: LLMGenerateOptions): Promise<string> {
-    const message = await this.client.messages.create({
-      model: this.model,
-      max_tokens: options.maxTokens || 1024,
-      temperature: options.temperature ?? 0.2,
-      system: options.systemPrompt,
-      messages: [{ role: 'user', content: options.query }],
-    });
+    const message = await this.client.messages.create(
+      {
+        model: this.model,
+        max_tokens: options.maxTokens || 1024,
+        temperature: options.temperature ?? 0.2,
+        system: options.systemPrompt,
+        messages: [{ role: 'user', content: options.query }],
+      },
+      options.abortSignal ? { signal: options.abortSignal } : undefined
+    );
 
     const firstBlock = message.content[0];
     if (firstBlock && firstBlock.type === 'text') {
@@ -36,15 +39,21 @@ export class AnthropicProvider implements ILLMProvider {
   }
 
   async stream(options: LLMGenerateOptions, onChunk: (chunk: string) => void): Promise<void> {
-    const stream = await this.client.messages.stream({
-      model: this.model,
-      max_tokens: options.maxTokens || 1024,
-      temperature: options.temperature ?? 0.2,
-      system: options.systemPrompt,
-      messages: [{ role: 'user', content: options.query }],
-    });
+    const stream = await this.client.messages.stream(
+      {
+        model: this.model,
+        max_tokens: options.maxTokens || 1024,
+        temperature: options.temperature ?? 0.2,
+        system: options.systemPrompt,
+        messages: [{ role: 'user', content: options.query }],
+      },
+      options.abortSignal ? { signal: options.abortSignal } : undefined
+    );
 
     for await (const chunk of stream) {
+      if (options.abortSignal?.aborted) {
+        break;
+      }
       if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
         onChunk(chunk.delta.text);
       }

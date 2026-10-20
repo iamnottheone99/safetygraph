@@ -14,6 +14,7 @@ export class CacheService {
   private breaker = circuitManager.getBreaker('redis', { failureThreshold: 3, timeout: 15000 });
   private isConnected = false;
   private memoryStore: Map<string, CacheEntry<any>> = new Map();
+  private readonly maxMemoryEntries = 1000;
 
   constructor() {
     this.initClient();
@@ -75,6 +76,23 @@ export class CacheService {
     return this.isConnected;
   }
 
+  private pruneMemoryStore(): void {
+    const now = Date.now();
+    for (const [k, entry] of this.memoryStore.entries()) {
+      if (entry.expiresAt && now > entry.expiresAt) {
+        this.memoryStore.delete(k);
+      }
+    }
+    while (this.memoryStore.size >= this.maxMemoryEntries) {
+      const oldestKey = this.memoryStore.keys().next().value;
+      if (oldestKey) {
+        this.memoryStore.delete(oldestKey);
+      } else {
+        break;
+      }
+    }
+  }
+
   async get<T>(key: string): Promise<T | null> {
     if (this.client && this.isConnected) {
       try {
@@ -105,10 +123,6 @@ export class CacheService {
   async set(key: string, value: any, ttlSeconds: number = 3600): Promise<void> {
     const serialized = JSON.stringify(value);
 
-    // Update in-memory fallback
-    const expiresAt = ttlSeconds > 0 ? Date.now() + ttlSeconds * 1000 : null;
-    this.memoryStore.set(key, { value, expiresAt });
-
     if (this.client && this.isConnected) {
       try {
         await this.breaker.execute(async () => {
@@ -118,10 +132,16 @@ export class CacheService {
             await this.client!.set(key, serialized);
           }
         });
+        return;
       } catch (err: any) {
         logger.debug({ err: err.message }, 'Redis SET failed; stored in memory fallback');
       }
     }
+
+    // In-memory bounded fallback
+    this.pruneMemoryStore();
+    const expiresAt = ttlSeconds > 0 ? Date.now() + ttlSeconds * 1000 : null;
+    this.memoryStore.set(key, { value, expiresAt });
   }
 
   async del(key: string): Promise<void> {

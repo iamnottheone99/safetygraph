@@ -39,6 +39,14 @@ describe('Phase 2: Cache & Config Verification', () => {
       expect(val).toBeNull();
     });
 
+    test('should bound in-memory cache size and prune entries', async () => {
+      const memStore = (cache as any).memoryStore;
+      for (let i = 0; i < 1005; i++) {
+        await cache.set(`key_${i}`, i, 60);
+      }
+      expect(memStore.size).toBeLessThanOrEqual(1000);
+    });
+
     test('should handle init gracefully when Redis server is offline', async () => {
       const isConnected = await cache.init();
       expect(typeof isConnected).toBe('boolean');
