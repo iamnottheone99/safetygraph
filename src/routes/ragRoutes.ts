@@ -1,6 +1,55 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyRequest, FastifyReply } from 'fastify';
 import { aiService } from '../services/aiService';
-import { validateInput, validateSafetyAsync, sanitizeOutput } from '../services/guardrails';
+import {
+  validateInput,
+  validateSafety,
+  validateSafetyAsync,
+  sanitizeOutput,
+} from '../services/guardrails';
+import { AppError } from '../utils/errors';
+import { env } from '../config/env';
+
+export async function requireClientAuth(
+  request: FastifyRequest,
+  _reply: FastifyReply
+): Promise<void> {
+  if (env.API_KEY) {
+    const authHeader = request.headers['authorization'];
+    const apiKeyHeader = request.headers['x-api-key'];
+    const token =
+      (typeof apiKeyHeader === 'string' ? apiKeyHeader : undefined) ||
+      (authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader);
+
+    if (!token || (token !== env.API_KEY && token !== env.ADMIN_API_KEY)) {
+      throw new AppError(
+        'Unauthorized: Valid API key required to access SafetyGraph endpoints',
+        401,
+        'E_UNAUTHORIZED'
+      );
+    }
+  }
+}
+
+export async function requireAdminAuth(
+  request: FastifyRequest,
+  _reply: FastifyReply
+): Promise<void> {
+  if (env.ADMIN_API_KEY) {
+    const authHeader = request.headers['authorization'];
+    const apiKeyHeader = request.headers['x-api-key'];
+    const token =
+      (typeof apiKeyHeader === 'string' ? apiKeyHeader : undefined) ||
+      (authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader);
+
+    if (!token || token !== env.ADMIN_API_KEY) {
+      throw new AppError(
+        'Unauthorized: Valid Admin API key required for ingestion',
+        401,
+        'E_UNAUTHORIZED'
+      );
+    }
+  }
+}
 import { graphContextService } from '../services/graphContextService';
 import { vectorService } from '../services/vectorService';
 import { cacheService } from '../services/cacheService';
@@ -81,7 +130,7 @@ export default async function ragRoutes(
   /**
    * Dual-Retrieval Verified RAG Query Endpoint (with Semantic Caching)
    */
-  fastify.post<{ Body: QueryBody }>('/query', { schema: querySchema }, async (request, reply) => {
+  fastify.post<{ Body: QueryBody }>('/query', { schema: querySchema, preHandler: [requireClientAuth] }, async (request, reply) => {
     const { query, entities = [] } = request.body;
 
     // 1. Input Guardrails Check
@@ -152,7 +201,7 @@ export default async function ragRoutes(
   /**
    * Real-Time Server-Sent Events (SSE) Streaming RAG Endpoint
    */
-  fastify.post<{ Body: QueryBody }>('/stream', { schema: querySchema }, async (request, reply) => {
+  fastify.post<{ Body: QueryBody }>('/stream', { schema: querySchema, preHandler: [requireClientAuth] }, async (request, reply) => {
     const { query, entities = [] } = request.body;
 
     // 1. Input Guardrails
@@ -186,8 +235,10 @@ export default async function ragRoutes(
       })}\n\n`
     );
 
-    // 3. Stream AI Generation
+    // 3. Stream AI Generation with Real-Time Speculative Guardrail Validation
     let synthesizedResponse = '';
+    let streamViolated = false;
+
     await aiService.streamResponse(
       {
         query,
@@ -195,16 +246,52 @@ export default async function ragRoutes(
         abortSignal: abortController.signal,
       },
       (chunk: string) => {
-        if (abortController.signal.aborted || reply.raw.destroyed || reply.raw.writableEnded) {
+        if (
+          abortController.signal.aborted ||
+          streamViolated ||
+          reply.raw.destroyed ||
+          reply.raw.writableEnded
+        ) {
           return;
         }
-        synthesizedResponse += chunk;
+
+        const candidateResponse = synthesizedResponse + chunk;
+
+        // Real-time guardrail check on accumulated tokens before emitting to client
+        if (constraints.length > 0) {
+          const liveCheck = validateSafety(candidateResponse, { hardConstraints: constraints });
+          if (!liveCheck.safe) {
+            streamViolated = true;
+            abortController.abort();
+            request.log.warn(
+              { issues: liveCheck.issues },
+              'Streaming response aborted by real-time safety guardrail'
+            );
+            reply.raw.write(
+              `event: guardrail_violation\ndata: ${JSON.stringify({
+                safe: false,
+                error: 'E_GUARDRAIL',
+                message: 'The generated response violated hard safety constraints.',
+                issues: liveCheck.issues,
+                verification: { evaluatedBy: 'realtime_guardrail' },
+              })}\n\n`
+            );
+            return reply.raw.end();
+          }
+        }
+
+        synthesizedResponse = candidateResponse;
         reply.raw.write(`event: chunk\ndata: ${JSON.stringify({ chunk })}\n\n`);
       }
     );
 
-    if (abortController.signal.aborted || reply.raw.destroyed || reply.raw.writableEnded) {
-      return reply.raw.end();
+    if (
+      streamViolated ||
+      abortController.signal.aborted ||
+      reply.raw.destroyed ||
+      reply.raw.writableEnded
+    ) {
+      return;
     }
 
     // 4. Output Sanitization & Semantic Guardrail Verification
@@ -242,7 +329,7 @@ export default async function ragRoutes(
    */
   fastify.post<{ Body: DocumentBody }>(
     '/documents',
-    { schema: documentSchema },
+    { schema: documentSchema, preHandler: [requireAdminAuth] },
     async (request, reply) => {
       const { id, content, metadata, embedding } = request.body;
       validateInput(content);
@@ -262,7 +349,7 @@ export default async function ragRoutes(
    */
   fastify.post<{ Body: ConstraintBody }>(
     '/constraints',
-    { schema: constraintSchema },
+    { schema: constraintSchema, preHandler: [requireAdminAuth] },
     async (request, reply) => {
       const { entity, constraint } = request.body;
       validateInput(constraint);
