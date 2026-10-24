@@ -10,6 +10,7 @@ import { env } from './config/env';
 
 export function buildApp(opts: FastifyServerOptions = {}): FastifyInstance {
   const app = Fastify({
+    bodyLimit: 256 * 1024, // 256KB request payload ceiling against memory exhaustion DoS
     logger:
       opts.logger !== undefined ? opts.logger : process.env.NODE_ENV === 'test' ? false : true,
     ...opts,
