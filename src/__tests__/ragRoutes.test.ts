@@ -152,22 +152,72 @@ describe('RAG API Routes Integration', () => {
       expect(body).toContain('event: done');
       expect(body).toContain('"safe":true');
     });
+
+    test('should abort stream and emit guardrail_violation before emitting violating chunk', async () => {
+      // Configure mock provider to stream a dangerous chunk that violates asthma/ibuprofen constraint
+      aiService.setProvider({
+        name: 'violating-mock',
+        model: 'violating-v1',
+        generate: async () => 'Take ibuprofen',
+        stream: async (_opts, onChunk) => {
+          onChunk('Safe preliminary note. ');
+          onChunk('You should take ibuprofen for symptoms.');
+          onChunk(' This trailing chunk should never be sent.');
+        },
+      });
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/rag/stream',
+        payload: {
+          query: 'What medication should I take for headache with asthma?',
+          entities: ['ibuprofen'],
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = res.body;
+
+      expect(body).toContain('event: metadata');
+      expect(body).toContain('event: guardrail_violation');
+      expect(body).toContain('E_GUARDRAIL');
+      expect(body).not.toContain('This trailing chunk should never be sent.');
+
+      // Restore default mock provider
+      aiService.setProvider(new MockProvider());
+    });
   });
 
   describe('POST /api/v1/rag/documents', () => {
-    test('should reject invalid document payloads with 400', async () => {
+    test('should reject unauthenticated request with 401', async () => {
       const res = await app.inject({
         method: 'POST',
         url: '/api/v1/rag/documents',
+        payload: {
+          id: 'doc_unauth',
+          content: 'Sample medical content',
+        },
+      });
+      expect(res.statusCode).toBe(401);
+      const body = res.json();
+      expect(body.error).toBe('E_UNAUTHORIZED');
+    });
+
+    test('should reject invalid document payloads with 400 when authenticated', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/rag/documents',
+        headers: { 'x-api-key': 'test-admin-key' },
         payload: { id: 'invalid_doc' },
       });
       expect(res.statusCode).toBe(400);
     });
 
-    test('should successfully ingest document into vector store', async () => {
+    test('should successfully ingest document into vector store when authenticated', async () => {
       const res = await app.inject({
         method: 'POST',
         url: '/api/v1/rag/documents',
+        headers: { 'x-api-key': 'test-admin-key' },
         payload: {
           id: 'doc_integration_test',
           content: 'Clinical trial shows efficacy of salbutamol in acute bronchospasm.',
@@ -183,19 +233,35 @@ describe('RAG API Routes Integration', () => {
   });
 
   describe('POST /api/v1/rag/constraints', () => {
-    test('should reject invalid constraint payloads with 400', async () => {
+    test('should reject unauthenticated request with 401', async () => {
       const res = await app.inject({
         method: 'POST',
         url: '/api/v1/rag/constraints',
+        payload: {
+          entity: 'propranolol',
+          constraint: 'Contraindicated in bronchial asthma',
+        },
+      });
+      expect(res.statusCode).toBe(401);
+      const body = res.json();
+      expect(body.error).toBe('E_UNAUTHORIZED');
+    });
+
+    test('should reject invalid constraint payloads with 400 when authenticated', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/rag/constraints',
+        headers: { 'x-api-key': 'test-admin-key' },
         payload: {},
       });
       expect(res.statusCode).toBe(400);
     });
 
-    test('should successfully register hard constraint for entity', async () => {
+    test('should successfully register hard constraint for entity when authenticated', async () => {
       const res = await app.inject({
         method: 'POST',
         url: '/api/v1/rag/constraints',
+        headers: { 'x-api-key': 'test-admin-key' },
         payload: {
           entity: 'propranolol',
           constraint: 'Contraindicated in bronchial asthma',

@@ -1,5 +1,6 @@
 import Fastify, { FastifyInstance, FastifyServerOptions, FastifyError } from 'fastify';
 import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import ragRoutes from './routes/ragRoutes';
 import { vectorService } from './services/vectorService';
@@ -14,8 +15,20 @@ export function buildApp(opts: FastifyServerOptions = {}): FastifyInstance {
     ...opts,
   });
 
-  // Register CORS
-  app.register(cors);
+  // Register Helmet for standard HTTP security headers
+  app.register(helmet, {
+    contentSecurityPolicy: process.env.NODE_ENV === 'production',
+  });
+
+  // Register CORS with configurable allowed origins
+  app.register(cors, {
+    origin:
+      env.CORS_ORIGIN === '*'
+        ? '*'
+        : env.CORS_ORIGIN.split(',').map((o) => o.trim()),
+    methods: ['GET', 'POST', 'OPTIONS'],
+    credentials: true,
+  });
 
   // Register Rate Limiting with centralized error format
   app.register(rateLimit, {

@@ -70,6 +70,15 @@ export function validateEnv(envSource: Record<string, string | undefined> = proc
       // Rate Limiting
       RATE_LIMIT_WINDOW_MS: num({ default: 900000 }),
       RATE_LIMIT_MAX: num({ default: 100 }),
+
+      // Authentication & Access Control
+      ADMIN_API_KEY: str({
+        default: process.env.NODE_ENV === 'test' ? 'test-admin-key' : '',
+      }),
+      API_KEY: str({ default: '' }),
+
+      // Security & CORS
+      CORS_ORIGIN: str({ default: '*' }),
     },
     {
       reporter: ({ errors }) => {
