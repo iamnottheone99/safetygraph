@@ -121,7 +121,7 @@ export default async function ragRoutes(
   /**
    * Health & Circuit Status Endpoint
    */
-  fastify.get('/circuits', async (_request: FastifyRequest, _reply: FastifyReply) => {
+  fastify.get('/circuits', { preHandler: [requireClientAuth] }, async (_request: FastifyRequest, _reply: FastifyReply) => {
     return {
       circuits: circuitManager.getAllStatuses(),
     };

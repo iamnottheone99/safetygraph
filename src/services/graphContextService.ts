@@ -1,6 +1,7 @@
 import pino from 'pino';
 import neo4j, { Driver } from 'neo4j-driver';
 import { circuitManager } from '../utils/circuitBreaker';
+import { env } from '../config/env';
 
 const logger = pino();
 
@@ -23,10 +24,10 @@ export class GraphContextService {
 
   private initDriver(): void {
     try {
-      const uri = process.env.NEO4J_URI || 'neo4j://localhost:7687';
-      const user = process.env.NEO4J_USER || 'neo4j';
-      const password = process.env.NEO4J_PASSWORD || 'password';
-      const connectionTimeout = process.env.NODE_ENV === 'test' ? 500 : 5000;
+      const uri = env.NEO4J_URI;
+      const user = env.NEO4J_USER;
+      const password = env.NEO4J_PASSWORD;
+      const connectionTimeout = env.NODE_ENV === 'test' ? 500 : 5000;
       this.driver = neo4j.driver(uri, neo4j.auth.basic(user, password), {
         connectionTimeout,
         maxConnectionLifetime: 3 * 60 * 60 * 1000,

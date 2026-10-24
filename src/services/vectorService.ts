@@ -2,6 +2,7 @@ import { Pool } from 'pg';
 import pino from 'pino';
 import OpenAI from 'openai';
 import { circuitManager } from '../utils/circuitBreaker';
+import { env } from '../config/env';
 
 const logger = pino();
 
@@ -62,13 +63,13 @@ export class VectorService {
 
   private initPool(): void {
     const connectionString =
-      process.env.DATABASE_URL ||
-      `postgresql://${process.env.POSTGRES_USER || 'postgres'}:${process.env.POSTGRES_PASSWORD || 'password'}@${process.env.POSTGRES_HOST || 'localhost'}:${process.env.POSTGRES_PORT || '5432'}/${process.env.POSTGRES_DB || 'safetygraph'}`;
+      env.DATABASE_URL ||
+      `postgresql://${env.POSTGRES_USER}:${env.POSTGRES_PASSWORD}@${env.POSTGRES_HOST}:${env.POSTGRES_PORT}/${env.POSTGRES_DB}`;
 
     try {
       this.pool = new Pool({
         connectionString,
-        connectionTimeoutMillis: process.env.NODE_ENV === 'test' ? 500 : 2000,
+        connectionTimeoutMillis: env.NODE_ENV === 'test' ? 500 : 2000,
         idleTimeoutMillis: 10000,
       });
 
@@ -128,13 +129,13 @@ export class VectorService {
    * Generates embedding vector via configured LLM provider or deterministic fallback
    */
   async generateEmbedding(text: string): Promise<number[]> {
-    if (process.env.OPENAI_API_KEY) {
+    if (env.OPENAI_API_KEY) {
       try {
         if (!this.openaiClient) {
-          this.openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+          this.openaiClient = new OpenAI({ apiKey: env.OPENAI_API_KEY });
         }
         const response = await this.openaiClient.embeddings.create({
-          model: process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small',
+          model: env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small',
           input: text,
         });
         if (response.data[0]?.embedding) {
