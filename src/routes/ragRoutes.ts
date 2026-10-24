@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { FastifyInstance, FastifyPluginOptions, FastifyRequest, FastifyReply } from 'fastify';
 import { aiService } from '../services/aiService';
 import {
@@ -8,6 +9,17 @@ import {
 } from '../services/guardrails';
 import { AppError } from '../utils/errors';
 import { env } from '../config/env';
+
+function safeCompare(a?: string, b?: string): boolean {
+  if (!a || !b) return false;
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) {
+    crypto.timingSafeEqual(bufA, bufA);
+    return false;
+  }
+  return crypto.timingSafeEqual(bufA, bufB);
+}
 
 export async function requireClientAuth(
   request: FastifyRequest,
@@ -20,7 +32,7 @@ export async function requireClientAuth(
       (typeof apiKeyHeader === 'string' ? apiKeyHeader : undefined) ||
       (authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader);
 
-    if (!token || (token !== env.API_KEY && token !== env.ADMIN_API_KEY)) {
+    if (!token || (!safeCompare(token, env.API_KEY) && !safeCompare(token, env.ADMIN_API_KEY))) {
       throw new AppError(
         'Unauthorized: Valid API key required to access SafetyGraph endpoints',
         401,
@@ -41,7 +53,7 @@ export async function requireAdminAuth(
       (typeof apiKeyHeader === 'string' ? apiKeyHeader : undefined) ||
       (authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader);
 
-    if (!token || token !== env.ADMIN_API_KEY) {
+    if (!token || !safeCompare(token, env.ADMIN_API_KEY)) {
       throw new AppError(
         'Unauthorized: Valid Admin API key required for ingestion',
         401,
@@ -139,7 +151,11 @@ export default async function ragRoutes(
     // Check cache for identical query + entity payload + provider/model
     const providerInfo = aiService.getProviderInfo();
     const sortedEntities = [...entities].sort().join(',');
-    const cacheKey = `rag:query:${Buffer.from(`${providerInfo.name}:${providerInfo.model}::${query.trim().toLowerCase()}::${sortedEntities}`).toString('base64url')}`;
+    const queryHash = crypto
+      .createHash('sha256')
+      .update(`${providerInfo.name}:${providerInfo.model}::${query.trim().toLowerCase()}::${sortedEntities}`)
+      .digest('hex');
+    const cacheKey = `rag:query:${queryHash}`;
     const cached = await cacheService.get<any>(cacheKey);
     if (cached) {
       request.log.info({ cacheKey }, 'Serving cached verified RAG response');
