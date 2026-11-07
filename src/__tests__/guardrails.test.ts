@@ -3,6 +3,8 @@ import {
   sanitizeOutput,
   validateSafety,
   truncateContext,
+  extractAndVerifyCitations,
+  validateSafetyAsync,
 } from '../services/guardrails';
 
 describe('Guardrails Service', () => {
@@ -124,6 +126,56 @@ describe('Guardrails Service', () => {
       const longContext = 'w '.repeat(5000);
       const truncated = truncateContext(longContext, 100);
       expect(truncated).toContain('[truncated due to length limit]');
+    });
+  });
+
+  describe('extractAndVerifyCitations (RAGFlow Grounding Alignment)', () => {
+    test('should extract valid citations matching retrieved docs', () => {
+      const response = 'According to clinical evidence [doc_med_01], NSAIDs trigger bronchospasms in AERD.';
+      const res = extractAndVerifyCitations(response, ['doc_med_01', 'doc_med_02']);
+      expect(res.citedIds).toEqual(['doc_med_01']);
+      expect(res.validCitations).toEqual(['doc_med_01']);
+      expect(res.invalidCitations).toEqual([]);
+      expect(res.isGrounded).toBe(true);
+    });
+
+    test('should flag hallucinated / unknown document citations', () => {
+      const response = 'Refer to fabricated protocol [doc_fake_99] for instructions.';
+      const res = extractAndVerifyCitations(response, ['doc_med_01']);
+      expect(res.citedIds).toEqual(['doc_fake_99']);
+      expect(res.validCitations).toEqual([]);
+      expect(res.invalidCitations).toEqual(['doc_fake_99']);
+      expect(res.isGrounded).toBe(false);
+    });
+  });
+
+  describe('Faithfulness & Grounding Guardrail', () => {
+    const context = [
+      'NSAIDs such as Ibuprofen and Aspirin can trigger bronchospasm in patients with severe asthma.',
+    ];
+    const constraints = ['Avoid NSAIDs for asthmatic patients'];
+
+    test('should pass faithfulness check when response aligns with context', async () => {
+      const response = 'Patients with severe asthma must avoid NSAIDs such as Ibuprofen and Aspirin.';
+      const result = await validateSafetyAsync(response, {
+        hardConstraints: constraints,
+        retrievedContext: context,
+        enforceFaithfulness: true,
+      });
+      expect(result.safe).toBe(true);
+      expect(result.faithfulness).toBeDefined();
+      expect(result.faithfulness?.passed).toBe(true);
+    });
+
+    test('should reject completely ungrounded claims when enforceFaithfulness is enabled', async () => {
+      const hallucinated = 'Jupiter has 95 known moons and is the largest planet in our solar system.';
+      const result = await validateSafetyAsync(hallucinated, {
+        hardConstraints: constraints,
+        retrievedContext: context,
+        enforceFaithfulness: true,
+      });
+      expect(result.safe).toBe(false);
+      expect(result.issues[0]).toContain('faithfulness');
     });
   });
 });

@@ -56,6 +56,13 @@ describe('Phase 1: Database & Lifecycle Verification', () => {
       expect(results[0].similarity).toBeGreaterThan(0);
     });
 
+    test('should perform hybrid RRF search fusing dense semantics and keyword matching', async () => {
+      const results = await vectorService.searchSimilar('Paracetamol alternative analgesic', 2);
+      expect(results.length).toBeGreaterThan(0);
+      expect(results[0].id).toBe('doc_med_02');
+      expect(results[0].similarity).toBeGreaterThan(0.5);
+    });
+
     test('should support upserting documents into fallback store', async () => {
       await vectorService.upsertDocument(
         'doc_custom_test',

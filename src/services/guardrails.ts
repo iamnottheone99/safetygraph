@@ -1,3 +1,4 @@
+import { evaluateFaithfulness, MetricResult } from './evalService';
 /**
  * Guardrails Module
  * Input validation, output sanitization, and deterministic safety checks for AI requests
@@ -123,6 +124,51 @@ export function sanitizeOutput(output: string): string {
 export interface SafetyProfile {
   hardConstraints: string[];
   prohibitedEntities?: string[];
+  retrievedContext?: string[];
+  availableDocIds?: string[];
+  enforceFaithfulness?: boolean;
+}
+
+export interface CitationVerification {
+  citedIds: string[];
+  validCitations: string[];
+  invalidCitations: string[];
+  isGrounded: boolean;
+}
+
+/**
+ * Extracts and verifies [doc_id] citations against available document IDs
+ */
+export function extractAndVerifyCitations(
+  response: string,
+  availableDocIds: string[] = []
+): CitationVerification {
+  if (!response) {
+    return { citedIds: [], validCitations: [], invalidCitations: [], isGrounded: true };
+  }
+
+  const citationRegex = /\[([a-zA-Z0-9_\-.:]{3,64})\]/g;
+  const found = new Set<string>();
+  let match: RegExpExecArray | null;
+
+  while ((match = citationRegex.exec(response)) !== null) {
+    const id = match[1];
+    if (id !== 'truncated' && id !== 'MANDATORY' && !id.startsWith('http')) {
+      found.add(id);
+    }
+  }
+
+  const citedIds = Array.from(found);
+  const availableSet = new Set(availableDocIds);
+  const validCitations = citedIds.filter((id) => availableSet.has(id));
+  const invalidCitations = citedIds.filter((id) => !availableSet.has(id));
+
+  return {
+    citedIds,
+    validCitations,
+    invalidCitations,
+    isGrounded: invalidCitations.length === 0,
+  };
 }
 
 export interface SafetyCheckResult {
@@ -246,7 +292,7 @@ export function validateSafety(advice: string, safetyProfile: SafetyProfile): Sa
 export async function validateSafetyAsync(
   advice: string,
   safetyProfile: SafetyProfile
-): Promise<SafetyCheckResult & { evaluationMetadata?: SystemOneSafetyEvaluation }> {
+): Promise<SafetyCheckResult & { evaluationMetadata?: SystemOneSafetyEvaluation; faithfulness?: MetricResult }> {
   // 1. Tier 1: Fast in-memory regex check (<1ms)
   const syncResult = validateSafety(advice, safetyProfile);
   if (!syncResult.safe) {
@@ -309,5 +355,30 @@ export async function validateSafetyAsync(
     }
   }
 
-  return syncResult;
+  // 3. Faithfulness context verification (if context provided)
+  let faithfulnessMetric: any = undefined;
+  if (safetyProfile.retrievedContext && safetyProfile.retrievedContext.length > 0) {
+    const faith = evaluateFaithfulness(
+      advice,
+      safetyProfile.retrievedContext,
+      safetyProfile.hardConstraints
+    );
+    faithfulnessMetric = {
+      score: faith.score,
+      passed: faith.passed,
+      reason: faith.reason,
+    };
+    if (!faith.passed && safetyProfile.enforceFaithfulness) {
+      return {
+        safe: false,
+        issues: [`Output failed faithfulness verification: ${faith.reason}`],
+        faithfulness: faithfulnessMetric,
+      };
+    }
+  }
+
+  return {
+    ...syncResult,
+    faithfulness: faithfulnessMetric,
+  };
 }
