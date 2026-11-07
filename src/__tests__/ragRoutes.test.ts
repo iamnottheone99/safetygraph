@@ -83,6 +83,8 @@ describe('RAG API Routes Integration', () => {
       expect(body).toHaveProperty('response');
       expect(body).toHaveProperty('constraints_applied');
       expect(body).toHaveProperty('vector_sources');
+      expect(body).toHaveProperty('citations');
+      expect(body).toHaveProperty('citation_verification');
       expect(body.safety_verified).toBe(true);
       expect(body.cached).toBe(false);
 

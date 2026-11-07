@@ -6,6 +6,7 @@ import {
   validateSafety,
   validateSafetyAsync,
   sanitizeOutput,
+  extractAndVerifyCitations,
 } from '../services/guardrails';
 import { AppError } from '../utils/errors';
 import { env } from '../config/env';
@@ -66,10 +67,12 @@ import { graphContextService } from '../services/graphContextService';
 import { vectorService } from '../services/vectorService';
 import { cacheService } from '../services/cacheService';
 import { circuitManager } from '../utils/circuitBreaker';
+import { mcpService } from '../services/mcpService';
 
 interface QueryBody {
   query: string;
   entities?: string[];
+  strict_grounding?: boolean;
 }
 
 interface DocumentBody {
@@ -95,6 +98,7 @@ const querySchema = {
         items: { type: 'string' },
         default: [],
       },
+      strict_grounding: { type: 'boolean', default: false },
     },
   },
 };
@@ -140,6 +144,26 @@ export default async function ragRoutes(
   });
 
   /**
+   * Model Context Protocol (MCP) JSON-RPC 2.0 Endpoint
+   */
+  fastify.post('/mcp', { preHandler: [requireClientAuth] }, async (request, reply) => {
+    const body = request.body as any;
+    if (!body || body.jsonrpc !== '2.0' || !body.method) {
+      return reply.status(400).send({
+        jsonrpc: '2.0',
+        id: body?.id ?? null,
+        error: { code: -32600, message: 'Invalid Request: Must be JSON-RPC 2.0 with a method' },
+      });
+    }
+
+    const response = await mcpService.handleRequest(body);
+    if (response === null) {
+      return reply.status(204).send();
+    }
+    return reply.send(response);
+  });
+
+  /**
    * Dual-Retrieval Verified RAG Query Endpoint (with Semantic Caching)
    */
   fastify.post<{ Body: QueryBody }>('/query', { schema: querySchema, preHandler: [requireClientAuth] }, async (request, reply) => {
@@ -182,7 +206,13 @@ export default async function ragRoutes(
 
     // 4. Output Sanitization & Semantic Guardrail Verification
     const sanitized = sanitizeOutput(rawResponse);
-    const safetyCheck = await validateSafetyAsync(sanitized, { hardConstraints: constraints });
+    const { strict_grounding = false } = request.body;
+    const safetyCheck = await validateSafetyAsync(sanitized, {
+      hardConstraints: constraints,
+      retrievedContext: vectorContext.map((v) => v.content),
+      availableDocIds: vectorContext.map((v) => v.id),
+      enforceFaithfulness: strict_grounding,
+    });
 
     if (!safetyCheck.safe) {
       request.log.warn(
@@ -197,10 +227,22 @@ export default async function ragRoutes(
       });
     }
 
+    const citationCheck = extractAndVerifyCitations(
+      sanitized,
+      vectorContext.map((v) => v.id)
+    );
+
     const payload = {
       response: sanitized,
       constraints_applied: constraints,
       vector_sources: vectorContext.map((v) => ({ id: v.id, similarity: v.similarity })),
+      citations: citationCheck.citedIds,
+      citation_verification: {
+        valid: citationCheck.validCitations,
+        invalid: citationCheck.invalidCitations,
+        grounded: citationCheck.isGrounded,
+      },
+      faithfulness: safetyCheck.faithfulness,
       provider: aiService.getProviderInfo(),
       safety_verified: true,
       verification_engine: safetyCheck.evaluationMetadata?.evaluatedBy || 'regex_fallback',

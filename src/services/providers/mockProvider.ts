@@ -21,7 +21,7 @@ export class MockProvider implements ILLMProvider {
     }
 
     if (vectorDocs.length > 0) {
-      return `According to verified reference material: ${vectorDocs[0].content}`;
+      return `According to verified reference material [${vectorDocs[0].id}]: ${vectorDocs[0].content}`;
     }
 
     return `SafetyGraph processed your inquiry: "${options.query}". No safety violations or contraindications were identified.`;

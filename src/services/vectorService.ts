@@ -180,6 +180,14 @@ export class VectorService {
         } catch (_indexErr) {
           // IVFFlat requires existing rows or can be added later; ignore if table is empty
         }
+        try {
+          await client.query(`
+            CREATE INDEX IF NOT EXISTS document_embeddings_fts_idx 
+            ON document_embeddings USING gin (to_tsvector('english', content));
+          `);
+        } catch (_ftsErr) {
+          // GIN index fallback
+        }
 
         this.isConnected = true;
         logger.info('PostgreSQL pgvector extension and document schema verified');
@@ -202,7 +210,8 @@ export class VectorService {
   }
 
   /**
-   * Semantic vector search query using pgvector cosine distance with fallback for offline environments
+   * Hybrid RRF (Reciprocal Rank Fusion) search combining dense pgvector embeddings
+   * and sparse full-text search with resilient fallback.
    */
   async searchSimilar(
     queryText: string,
@@ -215,22 +224,52 @@ export class VectorService {
 
     const embedding = queryEmbedding || (await this.generateEmbedding(queryText));
     const vectorStr = `[${embedding.join(',')}]`;
+    const candidateLimit = Math.max(topK * 4, 20);
 
     if (this.pool && this.isConnected) {
       try {
-        return await this.dbBreaker.execute(async () => {
+        const liveResults = await this.dbBreaker.execute(async () => {
           const client = await this.pool!.connect();
           try {
-            // True pgvector cosine distance search
-            const result = await client.query(
-              `SELECT id, content, metadata,
-                      ROUND((1 - (embedding <=> $1::vector))::numeric, 4) as similarity
-               FROM document_embeddings 
-               WHERE embedding IS NOT NULL
-               ORDER BY embedding <=> $1::vector ASC
-               LIMIT $2`,
-              [vectorStr, topK]
-            );
+            const hybridQuery = `
+              WITH dense_search AS (
+                SELECT id, content, metadata,
+                       ROW_NUMBER() OVER (ORDER BY embedding <=> $1::vector ASC) as rank
+                FROM document_embeddings
+                WHERE embedding IS NOT NULL
+                ORDER BY embedding <=> $1::vector ASC
+                LIMIT $2
+              ),
+              text_search AS (
+                SELECT id, content, metadata,
+                       ROW_NUMBER() OVER (ORDER BY ts_rank_cd(to_tsvector('english', content), plainto_tsquery('english', $3)) DESC) as rank
+                FROM document_embeddings
+                WHERE to_tsvector('english', content) @@ plainto_tsquery('english', $3)
+                ORDER BY ts_rank_cd(to_tsvector('english', content), plainto_tsquery('english', $3)) DESC
+                LIMIT $2
+              ),
+              combined AS (
+                SELECT 
+                  COALESCE(d.id, t.id) as id,
+                  COALESCE(d.content, t.content) as content,
+                  COALESCE(d.metadata, t.metadata) as metadata,
+                  (COALESCE(1.0 / (60.0 + d.rank), 0.0) + COALESCE(1.0 / (60.0 + t.rank), 0.0)) as rrf_score
+                FROM dense_search d
+                FULL OUTER JOIN text_search t ON d.id = t.id
+              )
+              SELECT id, content, metadata,
+                     ROUND(LEAST(1.0, (rrf_score / (2.0 / 61.0)))::numeric, 4) as similarity
+              FROM combined
+              ORDER BY rrf_score DESC
+              LIMIT $4;
+            `;
+
+            const result = await client.query(hybridQuery, [
+              vectorStr,
+              candidateLimit,
+              queryText,
+              topK,
+            ]);
 
             if (result.rows.length > 0) {
               return result.rows.map((row) => ({
@@ -240,43 +279,31 @@ export class VectorService {
                 similarity: parseFloat(row.similarity),
               }));
             }
-
-            // Fallback to full-text search if no rows with embeddings are populated yet
-            const ftsResult = await client.query(
-              `SELECT id, content, metadata FROM document_embeddings 
-               WHERE to_tsvector('english', content) @@ plainto_tsquery('english', $1)
-               LIMIT $2`,
-              [queryText, topK]
-            );
-            return ftsResult.rows.map((row) => ({
-              id: row.id,
-              content: row.content,
-              metadata: row.metadata,
-              similarity: 0.9,
-            }));
+            return [];
           } finally {
             client.release();
           }
         });
+
+        if (liveResults && liveResults.length > 0) {
+          return liveResults;
+        }
       } catch (err: any) {
-        logger.warn({ err: err.message }, 'Live vector query failed; using fallback store');
+        logger.warn({ err: err.message }, 'Live hybrid vector query failed; using fallback store');
       }
     }
 
-    // Resilient fallback scoring using cosine similarity over in-memory vectors & keyword overlap
-    const results: VectorDocument[] = [];
-
-    for (const [id, doc] of this.fallbackStore.entries()) {
-      let sim = 0;
+    // Resilient fallback scoring using RRF over in-memory cosine similarities and keyword token matching
+    const fallbackDocs = Array.from(this.fallbackStore.entries()).map(([id, doc]) => {
+      let cosineSim = 0;
       if (doc.embedding && doc.embedding.length === embedding.length) {
         let dotProduct = 0;
         for (let i = 0; i < embedding.length; i++) {
           dotProduct += embedding[i] * doc.embedding[i];
         }
-        sim = Math.max(0, dotProduct);
+        cosineSim = Math.max(0, dotProduct);
       }
 
-      // Keyword token fallback bonus
       const queryTokens = queryText
         .toLowerCase()
         .split(/\s+/)
@@ -289,15 +316,47 @@ export class VectorService {
         }
       }
       const tokenScore = queryTokens.length > 0 ? matchCount / queryTokens.length : 0;
-      const finalScore = Number(Math.max(sim, tokenScore, 0.5).toFixed(2));
 
-      results.push({
+      return {
         id,
         content: doc.content,
         metadata: doc.metadata,
-        similarity: finalScore,
-      });
-    }
+        cosineSim,
+        tokenScore,
+      };
+    });
+
+    // Rank dense
+    const denseSorted = [...fallbackDocs].sort((a, b) => b.cosineSim - a.cosineSim);
+    const denseRankMap = new Map<string, number>();
+    denseSorted.forEach((d, idx) => denseRankMap.set(d.id, idx + 1));
+
+    // Rank keyword / sparse
+    const textSorted = [...fallbackDocs]
+      .filter((d) => d.tokenScore > 0)
+      .sort((a, b) => b.tokenScore - a.tokenScore);
+    const textRankMap = new Map<string, number>();
+    textSorted.forEach((d, idx) => textRankMap.set(d.id, idx + 1));
+
+    const k = 60;
+    const maxRRF = 2 / (k + 1);
+    const results: VectorDocument[] = fallbackDocs.map((doc) => {
+      const denseRank = denseRankMap.get(doc.id);
+      const textRank = textRankMap.get(doc.id);
+
+      const rrfScore =
+        (denseRank ? 1 / (k + denseRank) : 0) +
+        (textRank ? 1 / (k + textRank) : 0);
+
+      const normalizedScore = Number(Math.min(1.0, rrfScore / maxRRF).toFixed(4));
+
+      return {
+        id: doc.id,
+        content: doc.content,
+        metadata: doc.metadata,
+        similarity: normalizedScore,
+      };
+    });
 
     results.sort((a, b) => (b.similarity || 0) - (a.similarity || 0));
     return results.slice(0, topK);
